@@ -1,0 +1,29 @@
+# Artisan Street Relay — Cloudflare Workers + Durable Objects.
+# No Hyperdrive/PostgreSQL binding here by design: Relay holds no durable
+# relational state (ephemeral routing/presence only, in DO storage + alarm
+# sweeps). Core remains the PostgreSQL-through-Hyperdrive authority for
+# identity, grants (JWT issuer), and the revocation list. See docs/NOTES.md.
+#
+# Required vars have NO defaults and fail closed (see docs/OPERATIONS.md):
+# set them via `wrangler secret`? No — they are non-secret config, set with
+# `wrangler deploy --var KEY:VALUE` or [vars] below per environment.
+
+name = "artisan-relay"
+main = "src/index.ts"
+compatibility_date = "2026-10-26"
+workers_dev = false
+
+[[durable_objects.bindings]]
+name = "MACHINE_ROOM"
+class_name = "MachineRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MachineRoom"]
+
+[vars]
+RELAY_AUD = "ast-relay"
+GRANT_MAX_TTL_S = "300"
+REVOCATION_POLL_MS = "60000"
+# CORE_JWKS_URL / CORE_ISS / CORE_REVOCATIONS_URL intentionally unset:
+# deployment must provide Core's real values (docs/OPERATIONS.md).

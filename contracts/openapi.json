@@ -1,0 +1,113 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Artisan Relay",
+    "version": "1.0.0",
+    "description": "Independent routing service. Routes opaque E2E-encrypted payloads between account clients and Forge machines. WebSocket sub-protocol is documented in contracts/wire.md; Effect Schema in src/schema.ts is authoritative."
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "service",
+                    "v"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "service": {
+                      "const": "artisan-relay"
+                    },
+                    "v": {
+                      "const": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/presence/{account}/{machine}": {
+      "get": {
+        "operationId": "presence",
+        "parameters": [
+          {
+            "name": "account",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+            }
+          },
+          {
+            "name": "machine",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer .+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "room presence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "v",
+                    "forge_online",
+                    "clients"
+                  ],
+                  "properties": {
+                    "v": {
+                      "const": 1
+                    },
+                    "forge_online": {
+                      "type": "boolean"
+                    },
+                    "clients": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "missing/invalid grant"
+          },
+          "403": {
+            "description": "grant bound to another room"
+          }
+        },
+        "description": "Authenticated presence. Requires Authorization: Bearer <grant JWT> for the same account+machine (any role with relay:connect). 401 without valid grant, 403 on wrong binding."
+      }
+    }
+  }
+}

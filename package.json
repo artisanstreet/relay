@@ -1,0 +1,33 @@
+{
+  "name": "@artisanstreet/relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Artisan Street Relay: independent Workers/Durable Objects routing service. Routes opaque E2E-encrypted payloads between account clients and Forge machines. No thread/application plaintext access.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "deploy:plan": "wrangler deploy --dry-run",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "b4a": "1.9.0",
+    "effect": "^3.22.4",
+    "jose": "6.2.13",
+    "noise-handshake": "4.2.0",
+    "sodium-javascript": "0.8.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261026.1",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "miniflare": "^3.20250718.3",
+    "typescript": "7.1.0-beta",
+    "vitest": "5.0.5",
+    "wrangler": "4.153.0"
+  }
+}

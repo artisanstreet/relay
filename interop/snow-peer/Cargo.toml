@@ -1,0 +1,10 @@
+[package]
+name = "snow-peer"
+version = "0.1.0"
+edition = "2021"
+description = "Relay interop peer: real snow Noise_XX responder driven over JSON lines for live JS<->Rust handshake verification"
+
+[dependencies]
+snow = "0.10"
+serde_json = "1"
+hex = "0.4"
