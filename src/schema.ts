@@ -212,6 +212,7 @@ export const ServerFrame = Schema.Union(
   ReadyFrame,
   ChannelOpenedFrame,
   DataFrame,
+  AckFrame,
   ChannelClosedFrame,
   PresenceFrame,
   ErrorFrame,

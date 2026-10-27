@@ -50,6 +50,26 @@ export const KIND_CONFIRM = 0x00;
 export const KIND_DATA = 0x01;
 /** Plaintext cap per transport message (Noise cap 65535 incl. 16B tag). */
 export const MAX_APP_PLAINTEXT = 60_000;
+
+/**
+ * Exact Relay data-body length (base64url chars, NO padding — b64uEncode
+ * strips `=`) that seal() will produce for `plaintextLen` plaintext bytes
+ * on `channel` — computable BEFORE sealing (and before any Noise nonce is
+ * consumed):
+ *   appFrame  = 3 + 1 + 1 + chLen + 1 + pt
+ *   noiseCt   = appFrame + 16 (XChaCha20-Poly1305 tag)
+ *   body      = 4 * ceil(noiseCt / 3) minus padding chars (2 if ct%3==1,
+ *               1 if ct%3==2, 0 if ct%3==0)
+ * Throws on over-cap plaintext or over-long channel, same as seal().
+ * Pinned exact by test/send-window.test.ts across sizes.
+ */
+export function sealedFrameSize(channel: string, plaintextLen: number): number {
+  const chLen = new TextEncoder().encode(channel).length;
+  if (chLen === 0 || chLen > 64) throw new Error("bad channel");
+  if (plaintextLen > MAX_APP_PLAINTEXT) throw new Error("message too large, chunk it");
+  const noiseCt = 3 + 1 + 1 + chLen + 1 + plaintextLen + 16;
+  return 4 * Math.ceil(noiseCt / 3) - (noiseCt % 3 === 1 ? 2 : noiseCt % 3 === 2 ? 1 : 0);
+}
 /** In-confirm JWT cap (grants are small; bounds confirm parsing). */
 export const MAX_GRANT_JWT = 8192;
 /** Rotation enforced after this many transport messages per direction. */
@@ -96,8 +116,7 @@ export function bindingMessage(role: number, handshakeHash: Uint8Array): Uint8Ar
   return out;
 }
 
-export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
+export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {  if (a.length !== b.length) return false;
   let d = 0;
   for (let i = 0; i < a.length; i++) d |= (a[i] ?? 0) ^ (b[i] ?? 0);
   return d === 0;
@@ -205,7 +224,12 @@ export class NoiseChannel {
     this.hs = new NoiseState(
       "XX",
       opts.initiator,
-      { publicKey: opts.staticKeypair.publicKey, secretKey: opts.staticKeypair.secretKey },
+      // Copies: the library aliases key buffers internally; caller buffers
+      // must never be mutated by the session.
+      {
+        publicKey: Uint8Array.from(opts.staticKeypair.publicKey),
+        secretKey: Uint8Array.from(opts.staticKeypair.secretKey),
+      },
       opts.noiseOpts,
     );
     this.hs.initialise(prologueBytes(opts.ctx));
@@ -234,8 +258,13 @@ export class NoiseChannel {
   receiveHandshakeMessage(msg: Uint8Array): void {
     if (this.phase !== "handshake") throw new Error("handshake already done");
     if (msg.length === 0 || msg.length > 65535) throw new Error("bad handshake message length");
+    // Defensive copy: noise-handshake aliases the input (TOK_E stores a
+    // subarray view) and _clear() zero-fills it on completion. Without this
+    // copy the library mutates CALLER buffers (it zeroed our m1/m2 fixture
+    // vectors before this fix). Live sessions are unaffected either way,
+    // but fixture evidence and caller buffers must stay intact.
     try {
-      this.hs.recv(msg);
+      this.hs.recv(Uint8Array.from(msg));
     } catch {
       this.destroy();
       throw new Error("handshake failed, session destroyed");

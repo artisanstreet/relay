@@ -211,17 +211,52 @@ describe("room routing", () => {
     expect(atClient.body).toBe(opaque);
   });
 
-  it("enforces strictly increasing transport seq", async () => {
+  it("enforces contiguous transport seq (first 0, then last+1)", async () => {
     const t = await openChannel();
-    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 5, body: "eA" });
-    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 5, body: "eA" });
+    // Gap on first frame: rejected (must start at 0).
+    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 4, body: "eA" });
+    const gap = JSON.parse(t.cs.sent[t.cs.sent.length - 1] as string) as { type: string; code?: string };
+    expect(gap.type).toBe("error");
+    expect(gap.code).toBe("bad-seq");
+    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" });
+    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" });
     const last = JSON.parse(t.cs.sent[t.cs.sent.length - 1] as string) as { type: string; code?: string };
     expect(last.type).toBe("error");
     expect(last.code).toBe("bad-seq");
-    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 6, body: "eA" });
+    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 1, body: "eA" });
     const fwd = JSON.parse(t.fs.sent[t.fs.sent.length - 1] as string) as { type: string; seq: number };
     expect(fwd.type).toBe("data");
-    expect(fwd.seq).toBe(6);
+    expect(fwd.seq).toBe(1);
+    // Skip ahead: rejected (gap).
+    await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 9, body: "eA" });
+    const gap2 = JSON.parse(t.cs.sent[t.cs.sent.length - 1] as string) as { type: string; code?: string };
+    expect(gap2.code).toBe("bad-seq");
+  });
+
+  it("opening channels requires forge:execute (routing-only cannot open)", async () => {
+    const core = testCoreKey();
+    const h = makeRoom(testVerifier(core));
+    const auth = async (id: string, role: "forge" | "client", scope?: string[]) => {
+      const g = await mintGrant(core, { role, ...(scope ? { scope } : {}) });
+      const s = fakeSocket();
+      h.room.onConnect(id, s);
+      await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
+      const ch = lastSent(s) as { nonce: string };
+      const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
+      await send(h.room, id, {
+        v: 1, type: "authenticate", jti: g.jti,
+        sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)),
+      });
+      return s;
+    };
+    await auth("f", "forge");
+    // Routing-only bearer: admitted (ready) but open is forbidden.
+    const cs = await auth("c", "client", ["relay:connect"]);
+    await send(h.room, "c", { v: 1, type: "open", channel: "ch1" });
+    const last = lastSent(cs) as { type: string; code?: string };
+    expect(last.type).toBe("error");
+    expect(last.code).toBe("bad-scope");
+    expect(cs.closed?.code).toBe(CLOSE_FORBIDDEN);
   });
 
   it("rejects cross-client channels and unknown channels", async () => {

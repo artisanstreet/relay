@@ -80,7 +80,9 @@ export async function mintGrant(
     sub: opts.account ?? "acct1",
     mid: opts.machine ?? "forge1",
     role: opts.role ?? "client",
-    scope: opts.scope ?? ["relay:connect"],
+    // Core §4: full trust = all three. Tests narrow explicitly where a
+    // reduced scope is the point (routing-only open rejection, etc.).
+    scope: opts.scope ?? ["relay:connect", "forge:execute", "machine:sync"],
     cnf: { jwk: { kty: "OKP", crv: "Ed25519", x: b64uEncode(cnfPk) } },
     // Core v1 has no rev claim: omit unless explicitly requested.
     ...(opts.rev !== undefined ? { rev: opts.rev } : {}),

@@ -40,7 +40,7 @@ cryptography is implemented in this repo.
 ```text
 Browser/Editor/Forge-client            Relay (CF Workers + DO)              Forge daemon
 ─────────────────────────            ─────────────────────────            ────────────
-E2E session (X25519/HKDF/ChaCha) ◄── opaque bytes only ──► E2E session
+E2E session (Noise XX)          ◄── opaque bytes only ──► E2E session
 WS admission (JWT + PoP) ──────────► verify + route ────► WS admission (JWT + PoP)
 outer WSS (CF-terminated, transport, NOT E2E)
 ```
@@ -55,12 +55,16 @@ plaintext, session keys, or identity secret keys.
    No credentials in URL, headers, or logs — browsers cannot set WS
    headers, so auth happens in-band.
 2. Client sends `hello {v:1, grant}` within 5 s or the socket is closed
-   (4401). Grant is a Core-signed JWT (EdDSA, `kid`), `aud: ast-relay-v1`,
+   (4401). Grant is a Core-signed JWT (EdDSA, `kid`), `aud: ast-relay`,
    TTL ≤ 300 s, single-use `jti` (replay cache), claims
-   `{v, iss, aud, jti, iat, [nbf,] exp, account, machine, role, scope,
-   cnf: {jwk: OKP Ed25519 pub}, rev}`. Unknown top-level claims rejected
-   at v=1. `forge`-role requires `relay:route` and is bound to exactly
-   `{account}/{machine}`; `relay:admin` grants cannot open tunnels.
+   `{v, iss, aud, sub, mid, jti, iat, nbf, exp, role, scope,
+   cnf: {jwk: OKP Ed25519 pub}}` (no `rev` in Core v1 — accepted if
+   present, never enforced). Unknown top-level claims rejected at v=1.
+   Tunnels require `relay:connect`; the grant is bound to exactly
+   `{sub}/{mid}` = this room (cross-account/machine use rejected).
+   Opening channels additionally requires `forge:execute` (Core §4:
+   Relay checks presence; content is opaque so every channel may carry
+   execution).
 3. Server replies `challenge {nonce(32B), timeout_ms}` (TTL 60 s,
    single-use). Client replies
    `authenticate {jti, sig}` with
@@ -119,19 +123,23 @@ post-compromise security is claimed for live sessions.
 - No remote attestation, no per-project scopes (pairing = full Forge
   trust per settled product decision), no project replication traffic
   semantics in v1 (replication agents run above this tunnel).
-- Single suite only. If primitives must change, the contract version
-  (`v`, `KEM_INFO_PREFIX`, `DATA_INFO`) bumps.
+- Single suite only (`Noise_XX_25519_ChaChaPoly_BLAKE2b`). If primitives
+  must change, the contract version (`v`, prologue domain, bind domain)
+  bumps.
 
 ## 7. Open items (need Core / Rust confirmation)
 
-1. Core: exact `iss`, JWKS URL, JWT TTL, v1-claim strictness,
-   `relay:admin` push-auth name. No new distribution needed for channels:
-   Forge identity comes from the existing enrolled machine record;
-   Editor identity arrives in-band as a Core-signed JWT.
-2. Rust: implement `Noise_XX_25519_ChaChaPoly_BLAKE2b` with `snow`
-   (same protocol string), the §4 prologue, empty handshake payloads,
-   mutual confirm (`handshake_hash || [jwt_len || jwt] || bind-sig`),
-   app framing, enforced rotation per contracts/e2e.md. LIVE EXCHANGE
+1. Core (done except confirmations): `rev`-free tokens + poll revocation
+   (`revokedMachineIds`/`revokedKeyIds`/`asOf`) aligned and tested against
+   the real `core-issued.json` artifact. Still to confirm: exact `iss`,
+   JWKS URL, `aud`, machine-id format, enrolled-key record field for
+   Editors. Open question: should `machine:sync`-only grants open
+   channels (currently require `forge:execute`)? No new distribution
+   needed for channels: Forge identity comes from the enrolled machine
+   record; Editor identity arrives in-band as a Core-signed JWT.
+2. Rust: production `forge-http` connector exists (`serve_channel` +
+   `serve_account_relay`); byte-level contract agreement verified in
+   code (prologue, AR1 framing, binding layout). LIVE EXCHANGE
    RUN GREEN 2026-10-27 (JS initiator <-> snow 0.10 responder in
    `interop/snow-peer`: handshake-hash equality + both transport
    directions). Confirm/app framing above Noise is Relay/Rust-shared

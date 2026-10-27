@@ -5,6 +5,9 @@
 
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
 import { decodeGrantClaims, type GrantClaims } from "./schema.ts";
+import { b64uDecode } from "./b64u.ts";
+
+export { b64uDecode, b64uEncode } from "./b64u.ts";
 
 export interface GrantVerifierOptions {
   jwksUrl: string;
@@ -25,34 +28,14 @@ export interface VerifiedGrant {
 
 export type VerifyGrant = (jwt: string, nowSec?: number) => Promise<VerifiedGrant>;
 
-const b64uRe = /^[A-Za-z0-9_-]+$/;
-
-export function b64uDecode(s: string): Uint8Array {
-  if (!b64uRe.test(s) || s.length === 0 || s.length % 4 === 1) {
-    throw new Error("invalid base64url");
-  }
-  const padded = s + "=".repeat((4 - (s.length % 4)) % 4);
-  const bin = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-export function b64uEncode(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i += 8192) {
-    s += String.fromCharCode(...b.subarray(i, i + 8192));
-  }
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /** Create a verifier. Remote JWKS is cached; pass a custom fetch in tests. */
 export function createGrantVerifier(
   opts: GrantVerifierOptions,
   fetchImpl?: (url: string, options: { headers: Headers; method: "GET"; redirect: "manual"; signal: AbortSignal }) => Promise<Response>,
 ): VerifyGrant {
   const jwks = createRemoteJWKSet(new URL(opts.jwksUrl), {
-    cacheMaxAge: opts.cacheMaxAgeMs ?? 5 * 60 * 1000,
+    // Core §4: cache JWKS 10 min; unknown kid refetches (jose built-in).
+    cacheMaxAge: opts.cacheMaxAgeMs ?? 10 * 60 * 1000,
     ...(fetchImpl ? { [customFetch]: fetchImpl } : {}),
   });
 
@@ -61,6 +44,8 @@ export function createGrantVerifier(
     const { payload, protectedHeader } = await jwtVerify(jwt, jwks, {
       issuer: opts.expectedIss,
       audience: opts.expectedAud,
+      // Core §4: exp/nbf checked with ≤60 s clock skew.
+      clockTolerance: 60,
       currentDate: new Date(now * 1000),
     });
     if (protectedHeader.alg !== "EdDSA") throw new Error("unexpected alg");

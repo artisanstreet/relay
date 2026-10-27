@@ -145,9 +145,32 @@ export class MachineRoom implements DurableObject {
     this.verify = verifierFor(env);
   }
 
-  /** Load persisted state (if any) and re-attach live sockets. */
+  /** Load persisted state (if any) and re-attach live sockets. Shared
+   *  across concurrent events: the load runs once per instance; concurrent
+   *  waiters share the promise (no double restore).
+   *
+   *  Storage FAILURE is never converted to null: null means "absent
+   *  snapshot" (safe to start fresh); an error means "unknown" (must fail
+   *  closed, never create a fresh room that would drop authority for live
+   *  sockets or overwrite the good snapshot). The shared promise resets on
+   *  failure so later events retry the load. */
+  private loadPromise: Promise<RoomState | null> | null = null;
+
   private async ensureLoaded(): Promise<RoomState | null> {
     if (this.room) return this.room;
+    if (!this.loadPromise) {
+      this.loadPromise = this.doLoad().then(
+        (r) => r,
+        (e: unknown) => {
+          this.loadPromise = null;
+          throw e;
+        },
+      );
+    }
+    return this.loadPromise;
+  }
+
+  private async doLoad(): Promise<RoomState | null> {
     const snap = await this.state.storage.get<RoomSnapshot>(SNAP_KEY);
     if (!snap) return null;
     const room = new RoomState(snap.account, snap.machine, this.verify, () => Date.now());
@@ -174,10 +197,33 @@ export class MachineRoom implements DurableObject {
     };
   }
 
-  private async persist(): Promise<void> {
-    if (!this.room || !this.room.isDirty()) return;
-    this.room.clearDirty();
-    await this.state.storage.put(SNAP_KEY, this.room.snapshot());
+  private persist(): Promise<void> {
+    // Chained so concurrent flushes cannot interleave a stale snapshot
+    // after a fresh one (each pass re-checks dirtiness).
+    const run = this.persistChain.then(() => this.persistOnce());
+    this.persistChain = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }
+
+  private persistChain: Promise<void> = Promise.resolve();
+
+  private async persistOnce(): Promise<void> {
+    for (let i = 0; i < 4; i++) {
+      if (!this.room || !this.room.isDirty()) return;
+      this.room.clearDirty();
+      const snap = this.room.snapshot();
+      try {
+        await this.state.storage.put(SNAP_KEY, snap);
+      } catch {
+        // Save failed: restore dirtiness so a later flush retries.
+        // The chain alone orders passes; it cannot recover a lost save.
+        this.room?.markDirty();
+        return;
+      }
+    }
   }
 
   private flush(): void {
@@ -222,13 +268,6 @@ export class MachineRoom implements DurableObject {
     return Number.isFinite(v) && v >= 1000 ? v : REVOCATION_POLL_MS;
   }
 
-  private forRoom(account: string, machine: string): RoomState {
-    if (!this.room || this.room.account !== account || this.room.machine !== machine) {
-      this.room = new RoomState(account, machine, this.verify, () => Date.now());
-    }
-    return this.room;
-  }
-
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const m = url.pathname.match(/^\/room\/([^/]+)\/([^/]+)$/);
@@ -237,12 +276,25 @@ export class MachineRoom implements DurableObject {
       if (!ID_RE.test(account) || !ID_RE.test(machine)) {
         return new Response("bad room id", { status: 400 });
       }
-      // If a snapshot exists it MUST match this room (same DO id space).
-      const existing = await this.state.storage.get<RoomSnapshot>(SNAP_KEY);
-      if (existing && (existing.account !== account || existing.machine !== machine)) {
+      // Restore first: a new connection arriving after hibernation must NOT
+      // discard surviving authenticated members/channels (previous bug:
+      // forRoom() built a fresh empty room here). Mismatch (should not
+      // happen: DO id space is per-room) is a 400, never a clobber.
+      // Storage failure is a 500: never create a fresh room on a failed
+      // read — it would drop authority for live sockets and let the next
+      // persist overwrite the good snapshot with an empty room.
+      let loaded: RoomState | null;
+      try {
+        loaded = await this.ensureLoaded();
+      } catch {
+        return new Response("storage unavailable", { status: 500 });
+      }
+      let room: RoomState | null = null;
+      if (loaded && (loaded.account !== account || loaded.machine !== machine)) {
         return new Response("room mismatch", { status: 400 });
       }
-      const room = this.forRoom(account, machine);
+      room = loaded ?? new RoomState(account, machine, this.verify, () => Date.now());
+      if (!loaded) this.room = room;
       const pair = new WebSocketPair();
       const client = pair[0];
       const server = pair[1];
@@ -258,7 +310,12 @@ export class MachineRoom implements DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === "/presence") {
-      const room = await this.ensureLoaded();
+      let room: RoomState | null;
+      try {
+        room = await this.ensureLoaded();
+      } catch {
+        return Response.json({ error: "storage unavailable" }, { status: 500 });
+      }
       if (!room) return Response.json({ v: 1, forge_online: false, clients: 0 });
       return Response.json({ v: 1, ...room.presence() });
     }
@@ -273,7 +330,14 @@ export class MachineRoom implements DurableObject {
     }
     if (!this.room) {
       // Wake path: reload the snapshot and re-attach live sockets.
-      await this.ensureLoaded();
+      // Storage failure fails CLOSED (1011): no fresh room, no message
+      // processing, no authority change. The client reconnects.
+      try {
+        await this.ensureLoaded();
+      } catch {
+        try { ws.close(1011, "storage-unavailable"); } catch { /* ignore */ }
+        return;
+      }
     }
     if (!this.room) {
       try { ws.close(4401, "gone"); } catch { /* ignore */ }
@@ -298,7 +362,11 @@ export class MachineRoom implements DurableObject {
     if (!att) return;
     if (!this.room) {
       // Wake on close: still need cleanup so channels don't go stale.
-      await this.ensureLoaded();
+      // Best effort: a storage failure leaves the persisted record for
+      // the next successful load to sweep (restore drops socketless conns).
+      try {
+        await this.ensureLoaded();
+      } catch { /* ignore */ }
     }
     this.room?.onClose(att.conn);
     this.flush();
@@ -308,7 +376,11 @@ export class MachineRoom implements DurableObject {
   async webSocketError(ws: WebSocket): Promise<void> {
     const att = ws.deserializeAttachment() as Attachment | null;
     if (att) {
-      if (!this.room) await this.ensureLoaded();
+      if (!this.room) {
+        try {
+          await this.ensureLoaded();
+        } catch { /* ignore */ }
+      }
       this.room?.onClose(att.conn);
     }
     try { ws.close(1011, "error"); } catch { /* ignore */ }
@@ -317,7 +389,18 @@ export class MachineRoom implements DurableObject {
   }
 
   async alarm(): Promise<void> {
-    if (!this.room) await this.ensureLoaded();
+    if (!this.room) {
+      try {
+        await this.ensureLoaded();
+      } catch {
+        // Retry later: without state there is nothing to sweep, but the
+        // next alarm must still happen (no silent stall).
+        try {
+          await this.state.storage.setAlarm(Date.now() + 30_000);
+        } catch { /* ignore */ }
+        return;
+      }
+    }
     try {
       await this.refreshRevocations();
       this.room?.tick();

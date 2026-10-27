@@ -290,7 +290,7 @@ export class RoomState {
       return;
     }
     // Tunnels require relay:connect. forge:execute / machine:sync are
-    // opaque to Relay (enforced by Forge); relay:admin cannot open tunnels.
+    // opaque to Relay (enforced by Forge on the application surface).
     if (!hasScope(grant, "relay:connect")) {
       this.sendTo(connId, err("bad-scope", "tunnel needs relay:connect"));
       this.drop(connId, CLOSE_FORBIDDEN, "bad-scope");
@@ -422,6 +422,16 @@ export class RoomState {
           this.sendTo(connId, err("invalid", "forge cannot open channels"));
           return;
         }
+        // Core §4: tunneled execution requires forge:execute, and Relay
+        // checks presence. Channels are opaque (any may carry execution),
+        // so opening requires it; routing-only bearers can connect but
+        // cannot open. (Whether machine:sync-only openers should pass is
+        // an open question for Core — flagged, currently rejected.)
+        if (!hasScope(found.conn.grant, "forge:execute")) {
+          this.sendTo(connId, err("bad-scope", "opening channels needs forge:execute"));
+          this.drop(connId, CLOSE_FORBIDDEN, "bad-scope");
+          return;
+        }
         if (!this.forge) {
           this.sendTo(connId, err("forge-offline", "no forge connected"));
           return;
@@ -503,8 +513,15 @@ export class RoomState {
       return;
     }
     const last = isForge ? st.lastForgeSeq : st.lastClientSeq;
-    if (!Number.isInteger(frame.seq) || frame.seq < 0 || frame.seq <= last) {
-      this.sendTo(connId, err("bad-seq", "seq must strictly increase"));
+    // Contiguous sequence numbers only (first frame is seq 0): the transport
+    // is a single ordered WebSocket per direction, so gaps are never
+    // legitimate. This also bounds all seq arithmetic: with contiguous seq
+    // from 0, sentHigh-ackedHigh always equals the tracked entry count and
+    // no crafted giant seq can force an unbounded ack loop or a
+    // permanently-full window. Non-safe-integers are rejected outright
+    // (JSON precision loss must never enter sequence state).
+    if (!Number.isSafeInteger(frame.seq) || frame.seq !== last + 1) {
+      this.sendTo(connId, err("bad-seq", "seq must be exactly last+1 (first frame 0)"));
       return;
     }
     if (isForge) st.lastForgeSeq = frame.seq;
@@ -512,13 +529,16 @@ export class RoomState {
 
     // Ack-window flow control (the ONLY backpressure mechanism: no
     // production-invisible socket buffer properties are consulted).
+    // Window bytes are BASE64-ENCODED body lengths — the exact same basis
+    // senders must account (see contracts/wire.md; Rust: frame.body.length
+    // of the received base64url string, never decoded raw length).
     const win = isForge ? st.toClient : st.toForge;
-    const unacked = win.sentHigh - win.ackedHigh;
-    if (unacked >= MAX_UNACKED_FRAMES || win.unackedBytes + frame.body.length > MAX_UNACKED_BYTES) {
+    if (win.sizes.length >= MAX_UNACKED_FRAMES || win.unackedBytes + frame.body.length > MAX_UNACKED_BYTES) {
       this.sendTo(connId, err("backpressure", "recipient window full; frame dropped"));
-      // Roll back the seq advance? No — the sender advanced its own seq;
-      // the drop is reported and the sender must cope (re-open channel).
-      // Keep the seq high-water so replays of the dropped frame fail.
+      // Dropped AFTER the seq advance: the sender's stream now has a hole
+      // by design. Loss destroys the E2E session downstream (fail-closed
+      // cipher stream); the app must re-handshake on a fresh channel, never
+      // retry the ciphertext. Replays of the dropped seq still fail.
       this.markDirty();
       return;
     }
@@ -551,13 +571,21 @@ export class RoomState {
     const win = isForge ? st.toForge : st.toClient;
     if (ackSeq <= win.ackedHigh) return; // duplicate: ignore
     if (ackSeq > win.sentHigh) return; // ahead of anything routed: ignore
-    const release = ackSeq - win.ackedHigh;
+    // Bounded by construction: contiguous seq means
+    // release == routed-but-unacked == sizes.length at most (≤64).
+    const release = Math.min(ackSeq - win.ackedHigh, win.sizes.length);
     for (let i = 0; i < release; i++) {
       const size = win.sizes.shift() ?? 0;
       win.unackedBytes = Math.max(0, win.unackedBytes - size);
     }
     win.ackedHigh = ackSeq;
     this.markDirty();
+    // Forward the ack to the original sender so ITS window slides too.
+    // (Acks flow recipient -> room -> sender; senders never ack acks, so
+    // this cannot loop.) Only slid windows are forwarded.
+    const fwd = encodeServerFrame({ v: 1, type: "ack", channel: channel as ChannelId, seq: ackSeq });
+    if (isForge) this.sendTo(st.owner, fwd);
+    else this.sendToForge(fwd);
   }
 
   // -- helpers ----------------------------------------------------------------
@@ -594,18 +622,29 @@ export class RoomState {
 
   /**
    * Fingerprint forms accepted for key entries: the raw `cnf.jwk.x`
-   * base64url, the hex SHA-256 of the raw key, or a Core signing `kid`.
+   * base64url, the hex SHA-256 of the raw key, the base64url-no-pad
+   * SHA-256 (Core §2 display/pinning convention), or a Core signing `kid`.
    * Generous matching is deliberate: the exact key-id vocabulary lives
-   * with Core (docs/contracts.md §4); all three forms are cheap to check.
+   * with Core (docs/contracts.md §4); all forms are cheap to check.
    */
-  private keyForms(grant: VerifiedGrant): string[] {
-    const fpr = [...sha256(grant.cnfPk)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    return [grant.kid, b64uEncode(grant.cnfPk), fpr];
+  private keyForms(kid: string, cnfPk: Uint8Array): string[] {
+    const digest = sha256(cnfPk);
+    const hexFpr = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+    let s = "";
+    for (let i = 0; i < digest.length; i += 8192) {
+      s += String.fromCharCode(...digest.subarray(i, i + 8192));
+    }
+    const b64Fpr = btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return [kid, b64uEncode(cnfPk), hexFpr, b64Fpr];
+  }
+
+  private matchesRevokedKeys(kid: string, cnfPk: Uint8Array): boolean {
+    return this.keyForms(kid, cnfPk).some((f) => this.revokedKeys.has(f));
   }
 
   private isRevoked(grant: VerifiedGrant): boolean {
     if (this.revokedMachines.has(grant.claims.mid)) return true;
-    return this.keyForms(grant).some((f) => this.revokedKeys.has(f));
+    return this.matchesRevokedKeys(grant.kid, grant.cnfPk);
   }
 
   /**
@@ -817,9 +856,8 @@ export class RoomState {
       else {
         try {
           const cnfPk = b64uDecode(c.cnfX);
-          const fpr = [...sha256(cnfPk)].map((b) => b.toString(16).padStart(2, "0")).join("");
-          if (this.revokedKeys.has(c.kid) || this.revokedKeys.has(c.cnfX) || this.revokedKeys.has(fpr)) {
-            stale = CLOSE_REVOKED;
+          if (cnfPk.length !== 32 || this.matchesRevokedKeys(c.kid, cnfPk)) {
+            stale = cnfPk.length !== 32 ? CLOSE_AUTH : CLOSE_REVOKED;
           }
         } catch {
           stale = CLOSE_AUTH;

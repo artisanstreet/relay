@@ -1,0 +1,17 @@
+[package]
+name = "forge-smoke"
+version = "0.1.0"
+edition = "2021"
+description = "Dev-only Relay interop harness entry: caller-built Hub + production forge_http::account_service::serve_account_relay. No editor edits; path deps only."
+
+[dependencies]
+forge-http = { path = "../../../editor/crates/forge-http" }
+forge-runs = { path = "../../../editor/crates/forge-runs" }
+forge-store = { path = "../../../editor/crates/forge-store" }
+forge-engines = { path = "../../../editor/crates/forge-engines" }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "io-std"] }
+tokio-util = { version = "=0.7.19", features = ["rt"] }
+anyhow = "=1.0.104"
+serde_json = "=1.0.151"
+hex = "=0.4.3"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }

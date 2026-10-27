@@ -9,10 +9,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "deploy:plan": "wrangler deploy --dry-run",
-    "dev": "wrangler dev"
+    "dev": "wrangler dev",
+    "build:client": "esbuild src/client.ts --bundle --platform=browser --format=esm --outfile=dist/relay-client.mjs --allow-overwrite"
   },
   "dependencies": {
-    "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "b4a": "1.9.0",
@@ -26,6 +26,7 @@
     "@types/node": "^26.6.5",
     "esbuild": "^0.28.2",
     "miniflare": "^3.20250718.3",
+    "reylo": "^0.5.0",
     "typescript": "7.1.0-beta",
     "vitest": "5.0.5",
     "wrangler": "4.153.0"

@@ -74,4 +74,10 @@ describe("wire contracts", () => {
     const rt = encodeServerFrame({ v: 1, type: "error", code: "c", message: "m" });
     expect(JSON.parse(rt).type).toBe("error");
   });
+
+  it("accepts server-forwarded acks (recipient -> room -> sender)", () => {
+    const f = readServerFrame({ v: 1, type: "ack", channel: "ch1", seq: 12 });
+    expect(f.type).toBe("ack");
+    if (f.type === "ack") expect(f.seq).toBe(12);
+  });
 });

@@ -98,7 +98,7 @@ describe("end-to-end through the room", () => {
       const forgeGrant = await mintGrant(core, {
         role: "forge", scope: ["relay:connect", "forge:execute", "machine:sync"], cnfSk: forgeCnf.sk,
       });
-      const editorGrant = await mintGrant(core, { role: "client", scope: ["relay:connect"], cnfSk: editorCnf.sk });
+      const editorGrant = await mintGrant(core, { role: "client", scope: ["relay:connect", "forge:execute"], cnfSk: editorCnf.sk });
       const forgeMat: GrantMaterial = { jwt: forgeGrant.jwt, jti: forgeGrant.jti, cnfSk: forgeCnf.sk };
       const editorMat: GrantMaterial = { jwt: editorGrant.jwt, jti: editorGrant.jti, cnfSk: editorCnf.sk };
 

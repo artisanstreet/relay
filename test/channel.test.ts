@@ -216,6 +216,42 @@ describe("noise channel with JWT identity binding", () => {
     await waitClosed(e.resp, "forged binding");
   });
 
+  it("responder rejects in-confirm JWTs without client role + forge:execute", async () => {
+    const core = testCoreKey();
+    const mkVerify = () =>
+      makeChannelJwtVerifier(
+        { jwksUrl: TEST_JWKS_URL, expectedIss: TEST_ISS, expectedAud: TEST_AUD, maxTtlSec: 300 },
+        stubFetch({ keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID }] }),
+      );
+    const forgeCnf = newEd25519Keypair();
+    for (const [name, opts] of [
+      ["forge role", { role: "forge" as const, scope: ["relay:connect", "forge:execute", "machine:sync"] }],
+      ["missing forge:execute", { role: "client" as const, scope: ["relay:connect"] }],
+    ] as const) {
+      const editorCnf = newEd25519Keypair();
+      const g = await mintGrant(core, { cnfSk: editorCnf.sk, role: opts.role, scope: [...opts.scope] });
+      const init = new NoiseChannel({
+        initiator: true,
+        staticKeypair: staticKeypairFromSecret(randomBytes(32)),
+        cnfSignKey: editorCnf.sk,
+        expectedResponderCnf: forgeCnf.pk,
+        ownGrantJwt: g.jwt,
+        ctx: CTX,
+      });
+      const resp = new NoiseChannel({
+        initiator: false,
+        staticKeypair: staticKeypairFromSecret(randomBytes(32)),
+        cnfSignKey: forgeCnf.sk,
+        verifyChannelJwt: mkVerify(),
+        ctx: CTX,
+      });
+      doHandshake(init, resp);
+      const [cInit] = init.takeOutbound();
+      resp.receiveTransport(cInit as Uint8Array);
+      await waitClosed(resp, name);
+    }
+  });
+
   it("initiator rejects a responder key that is not the enrolled Forge", async () => {
     const core = testCoreKey();
     const forgeCnf = newEd25519Keypair(); // real enrolled key (expected)
@@ -346,8 +382,29 @@ describe("noise channel with JWT identity binding", () => {
     expect(() => init.seal(new TextEncoder().encode("late"))).toThrow(/rotation due/);
   });
 
-  it("binding message layout is fixed", () => {
-    const h = new Uint8Array(64).fill(9);
+  it("never mutates caller handshake buffers (library aliases inputs)", async () => {
+    // Regression: noise-handshake TOK_E stores a subarray VIEW of the input
+    // and _clear() zero-fills it on completion. The wrapper must copy, so
+    // caller buffers (and fixture evidence) stay byte-identical.
+    const e = await makeEnds();
+    const m1 = e.init.nextHandshakeMessage();
+    const m1copy = Uint8Array.from(m1);
+    e.resp.receiveHandshakeMessage(m1);
+    expect([...m1]).toEqual([...m1copy]);
+    const m2 = e.resp.nextHandshakeMessage();
+    const m2copy = Uint8Array.from(m2);
+    e.init.receiveHandshakeMessage(m2);
+    expect([...m2]).toEqual([...m2copy]);
+    const m3 = e.init.nextHandshakeMessage();
+    const m3copy = Uint8Array.from(m3);
+    e.resp.receiveHandshakeMessage(m3);
+    expect([...m3]).toEqual([...m3copy]);
+    // And the ephemeral public keys are real (not zeroed).
+    expect(m1.some((b) => b !== 0)).toBe(true);
+    expect(m2.subarray(0, 32).some((b) => b !== 0)).toBe(true);
+  });
+
+  it("binding message layout is fixed", () => {    const h = new Uint8Array(64).fill(9);
     const m1 = bindingMessage(ROLE_INITIATOR, h);
     const m2 = bindingMessage(ROLE_RESPONDER, h);
     expect(m1.length).toBe("ast-relay-bind-v1".length + 1 + 64);
