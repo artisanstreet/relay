@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 import { Headers, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { RelayEnv, room_id } from "../config/relay.ts";
-import { GrantVerifier, has_scope } from "../services/grants/verifier.ts";
+import { GrantAuthority, GrantVerifier, has_scope } from "../services/grants/verifier.ts";
 
 const id_re = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
 
@@ -23,7 +23,7 @@ export function handle_presence(
 ): Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
-  HttpServerRequest.HttpServerRequest | RelayEnv | GrantVerifier
+  HttpServerRequest.HttpServerRequest | RelayEnv | GrantVerifier | GrantAuthority
 > {
   return Effect.gen(function* () {
     if (!id_re.test(account) || !id_re.test(machine)) {

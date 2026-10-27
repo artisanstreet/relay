@@ -1,38 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { Context, Effect, Layer } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
-import { RelayEnv } from "../../src/config/relay.ts";
-import { GrantVerifier, GrantVerifierLive } from "../../src/services/grants/verifier.ts";
+import { Effect, Layer } from "effect";
+import { FetchHttpClient } from "@effect/platform";
+import { GrantAuthority, GrantVerifier, GrantVerifierLive } from "../../src/services/grants/verifier.ts";
+import type { GrantAuthorityConfig } from "../../src/services/grants/verifier.ts";
 import { mintGrant, testCoreKey, TEST_AUD, TEST_ISS, TEST_KID } from "../helpers.ts";
 
-function stub_client(jwks_body: unknown, status = 200): Layer.Layer<HttpClient.HttpClient> {
-  const stub: HttpClient.HttpClient = {
-    ...({} as HttpClient.HttpClient),
-    execute: (_req: HttpClientRequest.HttpClientRequest) =>
-      Effect.succeed(
-        HttpClientResponse.fromWeb(
-          _req,
-          new Response(JSON.stringify(jwks_body), {
-            status,
-            headers: { "content-type": "application/json" },
-          }),
-        ),
-      ),
-  } as unknown as HttpClient.HttpClient;
-  return Layer.succeed(HttpClient.HttpClient, stub);
+function fetch_layer(jwks_body: unknown, status = 200) {
+  return Layer.succeed(
+    FetchHttpClient.Fetch,
+    (async (): Promise<Response> =>
+      new Response(JSON.stringify(jwks_body), {
+        status,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch,
+  );
 }
 
-function cfg() {
+function cfg(): GrantAuthorityConfig {
   return {
     jwks_url: "https://core.test/.well-known/jwks.json",
     core_iss: TEST_ISS,
     relay_aud: TEST_AUD,
     max_ttl_sec: 300,
-    revocations_url: "https://core.test/v1/grants/revocations",
-    poll_ms: 60_000,
-    portal_origin: null,
-    raw_env: {} as never,
   };
+}
+
+function live(jwks_body: unknown, status = 200) {
+  const fetch = fetch_layer(jwks_body, status);
+  return Layer.mergeAll(
+    Layer.provide(GrantVerifierLive, Layer.provide(FetchHttpClient.layer, fetch)),
+    Layer.succeed(GrantAuthority, cfg()),
+  );
 }
 
 describe("grant verifier (Effect adapter over vetted jose)", () => {
@@ -45,10 +43,7 @@ describe("grant verifier (Effect adapter over vetted jose)", () => {
     const prog = Effect.gen(function* () {
       const api = yield* GrantVerifier;
       return yield* api.verify_grant(g.jwt);
-    }).pipe(
-      Effect.provide(Layer.mergeAll(Layer.provide(GrantVerifierLive, stub_client(jwks)), Layer.succeed(RelayEnv, cfg()))),
-      Effect.provide(stub_client(jwks)),
-    );
+    }).pipe(Effect.provide(live(jwks)));
     const verified = await Effect.runPromise(prog);
     expect(verified.kid).toBe(TEST_KID);
     expect(verified.claims.sub).toBe("acct1");
@@ -64,10 +59,7 @@ describe("grant verifier (Effect adapter over vetted jose)", () => {
     const prog = Effect.gen(function* () {
       const api = yield* GrantVerifier;
       return yield* Effect.exit(api.verify_grant(g.jwt));
-    }).pipe(
-      Effect.provide(Layer.mergeAll(Layer.provide(GrantVerifierLive, stub_client(jwks)), Layer.succeed(RelayEnv, cfg()))),
-      Effect.provide(stub_client(jwks)),
-    );
+    }).pipe(Effect.provide(live(jwks)));
     const exit = await Effect.runPromise(prog);
     expect(exit._tag).toBe("Failure");
   });
@@ -82,10 +74,7 @@ describe("grant verifier (Effect adapter over vetted jose)", () => {
     const prog = Effect.gen(function* () {
       const api = yield* GrantVerifier;
       return yield* Effect.exit(api.verify_grant(g.jwt));
-    }).pipe(
-      Effect.provide(Layer.mergeAll(Layer.provide(GrantVerifierLive, stub_client(jwks)), Layer.succeed(RelayEnv, cfg()))),
-      Effect.provide(stub_client(jwks)),
-    );
+    }).pipe(Effect.provide(live(jwks)));
     const exit = await Effect.runPromise(prog);
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {

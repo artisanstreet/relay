@@ -3,7 +3,6 @@ import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
 import { check_grant_claims } from "./checks.ts";
 import type { GrantClaims } from "../../schema.ts";
-import { RelayEnv } from "../../config/relay.ts";
 import { GrantVerificationFailed } from "../../errors.ts";
 
 export interface VerifiedGrant {
@@ -19,11 +18,20 @@ export function has_scope(g: VerifiedGrant, scope: string): boolean {
 
 export type VerifyGrant = (jwt: string, now_sec?: number) => Promise<VerifiedGrant>;
 
+export interface GrantAuthorityConfig {
+  readonly jwks_url: string;
+  readonly core_iss: string;
+  readonly relay_aud: string;
+  readonly max_ttl_sec: number;
+}
+
+export class GrantAuthority extends Context.Tag("GrantAuthority")<GrantAuthority, GrantAuthorityConfig>() {}
+
 export interface GrantVerifierApi {
   readonly verify_grant: (
     jwt: string,
     now_sec?: number,
-  ) => Effect.Effect<VerifiedGrant, GrantVerificationFailed, RelayEnv>;
+  ) => Effect.Effect<VerifiedGrant, GrantVerificationFailed, GrantAuthority>;
 }
 
 export class GrantVerifier extends Context.Tag("GrantVerifier")<GrantVerifier, GrantVerifierApi>() {}
@@ -87,7 +95,7 @@ export const GrantVerifierLive: Layer.Layer<GrantVerifier, never, HttpClient.Htt
 
     const verify_grant: GrantVerifierApi["verify_grant"] = (jwt, now_sec) =>
       Effect.gen(function* () {
-        const cfg = yield* RelayEnv;
+        const cfg = yield* GrantAuthority;
         const now = now_sec ?? Math.floor((yield* Clock.currentTimeMillis) / 1000);
         const jwks = set_for(cfg.jwks_url);
         const verified = yield* Effect.tryPromise({

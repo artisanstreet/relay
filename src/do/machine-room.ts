@@ -3,7 +3,7 @@ import { FetchHttpClient } from "@effect/platform";
 import { RoomState } from "../room/state.ts";
 import type { RoomSocket, VerifyGrant } from "../room/state.ts";
 import { RelayEnv, parse_env, type Env } from "../config/relay.ts";
-import { GrantVerifier, GrantVerifierLive } from "../services/grants/verifier.ts";
+import { createGrantVerifier } from "../jwt.ts";
 import { RevocationClient, RevocationClientLive } from "../services/revocations.ts";
 import { make_room_store } from "./room-store.ts";
 import type { RoomStoreApi } from "./room-store.ts";
@@ -41,7 +41,7 @@ export class MachineRoom implements DurableObject {
   private relay_cfg: RelayEnv["Type"];
   private store: RoomStoreApi;
   private last_fetch_ref: Ref.Ref<number>;
-  private runtime: ManagedRuntime.ManagedRuntime<GrantVerifier | RevocationClient | RelayEnv, never>;
+  private runtime: ManagedRuntime.ManagedRuntime<RevocationClient | RelayEnv, never>;
   private verify_fn: VerifyGrant;
 
   constructor(state: DurableObjectState, env: Env) {
@@ -49,25 +49,24 @@ export class MachineRoom implements DurableObject {
     const acquired = Effect.runSync(Effect.gen(function* () {
       const cfg = yield* parse_env(env);
       const last_fetch_ref = yield* Ref.make(0);
-      const runtime = ManagedRuntime.make(
-        Layer.mergeAll(
-          Layer.provide(GrantVerifierLive, HttpLive),
-          Layer.provide(RevocationClientLive, HttpLive),
-          HttpLive,
-          Layer.succeed(RelayEnv, cfg),
-        ),
-      );
-      return { cfg, last_fetch_ref, runtime };
+      return { cfg, last_fetch_ref };
     }));
     this.state = do_state;
     this.relay_cfg = acquired.cfg;
     this.last_fetch_ref = acquired.last_fetch_ref;
-    this.runtime = acquired.runtime;
-    const runtime_snapshot = acquired.runtime;
-    this.verify_fn = ((jwt: string, now_sec?: number) =>
-      runtime_snapshot.runPromise(
-        Effect.flatMap(GrantVerifier, (api) => api.verify_grant(jwt, now_sec)),
-      )) as VerifyGrant;
+    this.runtime = ManagedRuntime.make(
+      Layer.mergeAll(
+        Layer.provide(RevocationClientLive, HttpLive),
+        HttpLive,
+        Layer.succeed(RelayEnv, acquired.cfg),
+      ),
+    );
+    this.verify_fn = createGrantVerifier({
+      jwksUrl: acquired.cfg.jwks_url,
+      expectedIss: acquired.cfg.core_iss,
+      expectedAud: acquired.cfg.relay_aud,
+      maxTtlSec: acquired.cfg.max_ttl_sec,
+    });
     this.store = Effect.runSync(make_room_store(do_state, this.verify_fn, () => Date.now()));
   }
 

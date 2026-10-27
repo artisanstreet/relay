@@ -1,9 +1,7 @@
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Option } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
-import { GrantVerifierLive, has_scope } from "./services/grants/verifier.ts";
+import { FetchHttpClient } from "@effect/platform";
+import { GrantAuthority, GrantVerifier, GrantVerifierLive, has_scope } from "./services/grants/verifier.ts";
 import type { VerifiedGrant } from "./services/grants/verifier.ts";
-import { GrantVerifier } from "./services/grants/verifier.ts";
-import { RelayEnv } from "./config/relay.ts";
 
 export { b64uDecode, b64uEncode } from "./b64u.ts";
 export type { VerifiedGrant };
@@ -21,44 +19,28 @@ export function createGrantVerifier(
   opts: GrantVerifierOptions,
   fetchImpl?: (url: string, options: { headers: Headers; method: "GET"; redirect: "manual"; signal: AbortSignal }) => Promise<Response>,
 ): VerifyGrant {
-  const cfg = {
+  const authority = {
     jwks_url: opts.jwksUrl,
     core_iss: opts.expectedIss,
     relay_aud: opts.expectedAud,
     max_ttl_sec: opts.maxTtlSec,
-    revocations_url: `${opts.expectedIss.replace(/\/$/, "")}/v1/grants/revocations`,
-    poll_ms: 60_000,
-    portal_origin: null as string | null,
-    raw_env: {} as never,
   };
-  const http_layer = fetchImpl
+  const fetch_layer = fetchImpl
     ? Layer.succeed(
-        HttpClient.HttpClient,
-        {
-          execute: (req: HttpClientRequest.HttpClientRequest) =>
-            Effect.flatMap(
-              Effect.tryPromise({
-                try: () =>
-                  fetchImpl(req.url, {
-                    headers: new Headers({ accept: "application/json" }),
-                    method: "GET",
-                    redirect: "manual",
-                    signal: new AbortController().signal,
-                  }),
-                catch: (cause) => new Error(`jwks fetch failed: ${String(cause)}`),
-              }),
-              (web_res) =>
-                web_res.ok
-                  ? Effect.succeed(HttpClientResponse.fromWeb(req, web_res))
-                  : Effect.fail(new Error(`jwks fetch failed: ${web_res.status}`)),
-            ),
-        } as unknown as HttpClient.HttpClient,
+        FetchHttpClient.Fetch,
+        (async (url: string | URL | Request, init?: RequestInit): Promise<Response> =>
+          fetchImpl(String(url), {
+            headers: new Headers(init?.headers),
+            method: "GET",
+            redirect: "manual",
+            signal: init?.signal as AbortSignal,
+          })) as typeof fetch,
       )
-    : FetchHttpClient.layer;
+    : Layer.empty;
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
-      Layer.provide(GrantVerifierLive, http_layer),
-      Layer.succeed(RelayEnv, cfg),
+      Layer.provide(GrantVerifierLive, Layer.provide(FetchHttpClient.layer, fetch_layer)),
+      Layer.succeed(GrantAuthority, authority),
     ),
   );
   // Thin Promise facade: unwrap the Exit cause so callers observe the raw

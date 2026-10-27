@@ -5,6 +5,8 @@ import { router } from "./router.ts";
 import { handle_health } from "./handlers/health.ts";
 import { handle_route_upgrade } from "./handlers/route.ts";
 import { RelayEnv } from "./config/relay.ts";
+import { GrantAuthority } from "./services/grants/verifier.ts";
+import type { GrantAuthorityConfig } from "./services/grants/verifier.ts";
 import { GrantVerifierLive } from "./services/grants/verifier.ts";
 import { RevocationClientLive } from "./services/revocations.ts";
 import { corsPreflight, corsResponseHeaders } from "./cors.ts";
@@ -74,11 +76,18 @@ export default {
       }
 
       const http_req = HttpServerRequest.fromWeb(req);
+      const authority: GrantAuthorityConfig = {
+        jwks_url: cfg.jwks_url,
+        core_iss: cfg.core_iss,
+        relay_aud: cfg.relay_aud,
+        max_ttl_sec: cfg.max_ttl_sec,
+      };
       const http_res: HttpServerResponse.HttpServerResponse = yield* Effect.provideService(
         router,
         HttpServerRequest.HttpServerRequest,
         http_req,
       ).pipe(
+        Effect.provideService(GrantAuthority, authority),
         Effect.provideService(RelayEnv, cfg),
         Effect.catchTag("RouteNotFound", () =>
           Effect.succeed(HttpServerResponse.unsafeJson({ error: "not found" }, { status: 404 }))),

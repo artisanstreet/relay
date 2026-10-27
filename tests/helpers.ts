@@ -180,7 +180,12 @@ export function makeRoom(
   verify: VerifyGrant,
   account = "acct1",
   machine = "forge1",
-  startMs = Date.now(),
+  // Start 1s ahead of wall clock: grants minted after setup carry
+  // second-granularity nbf == iat, which a room clock fixed just before a
+  // second boundary would (correctly) reject as not-yet-valid. Production
+  // uses live time and never sees this; the offset only absorbs test
+  // scheduling jitter, never test assertions (all advances are relative).
+  startMs = Date.now() + 1000,
 ): RoomHarness {
   const nowMs = { t: startMs };
   const room = new RoomState(account, machine, verify, () => nowMs.t);
