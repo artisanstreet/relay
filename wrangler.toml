@@ -27,3 +27,7 @@ GRANT_MAX_TTL_S = "300"
 REVOCATION_POLL_MS = "60000"
 # CORE_JWKS_URL / CORE_ISS / CORE_REVOCATIONS_URL intentionally unset:
 # deployment must provide Core's real values (docs/OPERATIONS.md).
+# RELAY_PORTAL_ORIGIN intentionally unset: exact account-portal origin
+# (e.g. "https://core.artisanstreet.dev") allowed cross-origin browser
+# access (presence CORS + WS Origin gate). Unset = no CORS headers, no
+# Origin gate (same-origin + native clients unaffected).

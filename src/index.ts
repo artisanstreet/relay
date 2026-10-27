@@ -15,6 +15,7 @@ import { RoomState } from "./room.ts";
 import type { RoomSnapshot, RoomSocket, VerifyGrant } from "./room.ts";
 import { createGrantVerifier, hasScope } from "./jwt.ts";
 import { REVOCATION_POLL_MS, fetchRevocations } from "./revocations.ts";
+import { corsPreflight, corsResponseHeaders, normalizePortalOrigin, wsOriginGate } from "./cors.ts";
 
 export interface Env {
   MACHINE_ROOM: DurableObjectNamespace;
@@ -29,6 +30,13 @@ export interface Env {
   CORE_REVOCATIONS_URL?: string;
   /** Revocation poll interval ms (default 60000, min 1000). */
   REVOCATION_POLL_MS?: string;
+  /**
+   * Exact account-portal origin allowed cross-origin browser access
+   * (e.g. `https://core.artisanstreet.dev`), for CORS on presence/version
+   * and the WebSocket-upgrade Origin check. Unset/invalid => no CORS
+   * headers and no Origin gate (same-origin + native clients unaffected).
+   */
+  RELAY_PORTAL_ORIGIN?: string;
 }
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
@@ -66,9 +74,27 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
+    const portalOrigin = normalizePortalOrigin(env.RELAY_PORTAL_ORIGIN);
+
+    // Browser preflight for the CORS-enabled routes (presence reads carry
+    // `Authorization`, so cross-origin portals preflight). Nothing else
+    // answers OPTIONS.
+    const preflight = corsPreflight(req, /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, portalOrigin);
+    if (preflight) return preflight;
+
+    /** Attach CORS headers where they apply; Vary always (cache safety). */
+    const withCors = (res: Response): Response => {
+      const out = new Response(res.body, res);
+      out.headers.set("Vary", "Origin");
+      const h = corsResponseHeaders(req, portalOrigin);
+      if (h) {
+        out.headers.set("Access-Control-Allow-Origin", h.get("Access-Control-Allow-Origin") as string);
+      }
+      return out;
+    };
 
     if (req.method === "GET" && path === "/v1/health") {
-      return json({ ok: true, service: "artisan-relay", v: 1 });
+      return withCors(json({ ok: true, service: "artisan-relay", v: 1 }));
     }
 
     const route = path.match(/^\/v1\/route\/([^/]+)\/([^/]+)$/);
@@ -80,6 +106,12 @@ export default {
       if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
         return json({ error: "websocket required" }, 426);
       }
+      // Browser upgrades carry Origin; native clients send none. When a
+      // portal origin is configured, a mismatched Origin is refused here
+      // (403 JSON, pre-upgrade). Absent Origin always proceeds to
+      // grant+PoP admission below.
+      const gate = wsOriginGate(req, portalOrigin);
+      if (gate) return gate;
       const stub = env.MACHINE_ROOM.get(roomId(env.MACHINE_ROOM, account, machine));
       return stub.fetch(`https://relay/room/${account}/${machine}`, { headers: req.headers });
     }
@@ -91,22 +123,22 @@ export default {
     if (presence && req.method === "GET") {
       const [, account = "", machine = ""] = presence;
       if (!ID_RE.test(account) || !ID_RE.test(machine)) {
-        return json({ error: "bad room id" }, 400);
+        return withCors(json({ error: "bad room id" }, 400));
       }
       const token = bearer(req);
-      if (!token) return json({ error: "bearer grant required" }, 401);
+      if (!token) return withCors(json({ error: "bearer grant required" }, 401));
       let grant;
       try {
         grant = await verifierFor(env)(token);
       } catch {
-        return json({ error: "bad grant" }, 401);
+        return withCors(json({ error: "bad grant" }, 401));
       }
       if (grant.claims.sub !== account || grant.claims.mid !== machine) {
-        return json({ error: "forbidden" }, 403);
+        return withCors(json({ error: "forbidden" }, 403));
       }
-      if (!hasScope(grant, "relay:connect")) return json({ error: "forbidden" }, 403);
+      if (!hasScope(grant, "relay:connect")) return withCors(json({ error: "forbidden" }, 403));
       const stub = env.MACHINE_ROOM.get(roomId(env.MACHINE_ROOM, account, machine));
-      return stub.fetch(`https://relay/presence`);
+      return withCors(await stub.fetch(`https://relay/presence`));
     }
 
     if (req.method === "POST" && path === "/v1/admin/revocations") {

@@ -10,6 +10,15 @@
    - `RELAY_AUD=ast-relay`, `GRANT_MAX_TTL_S=300`.
    - `CORE_REVOCATIONS_URL` (default `${CORE_ISS}/v1/grants/revocations`).
    - `REVOCATION_POLL_MS=60000` (min 1000).
+   - `RELAY_PORTAL_ORIGIN` (unset by default): exact account-portal origin
+     (e.g. `https://core.artisanstreet.dev`) permitted cross-origin browser
+     access. When set: presence/version answer CORS preflights and reflect
+     the origin (`Access-Control-Allow-Origin`, `Vary: Origin`; allow-list
+     is `GET` + `Authorization`); WebSocket upgrades carrying a mismatched
+     `Origin` are refused pre-upgrade (403), while requests with no `Origin`
+     (native clients, curl) always proceed to grant+PoP admission. No
+     wildcards, no `Access-Control-Allow-Credentials` ever (auth is Bearer
+     grants, never cookies). Format: single `https://host[:port]`, no path.
 4. `wrangler deploy` (dry-run verified: `npm run deploy:plan`).
    Durable Object `MachineRoom` migration `v1` creates SQLite storage
    on first use. No Hyperdrive/PostgreSQL binding: Relay holds no
