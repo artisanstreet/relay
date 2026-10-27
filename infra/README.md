@@ -54,13 +54,14 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
     so the check is explicit) and rejects identical Core/Relay origins (two
     custom-domain Workers cannot own one host).
   - CLI (`alchemy/bin/cli.js`) runs under Bun when present, else Node —
-    requires Node 22.22.3 / 24.11.1+. This stack pins `engines.node >= 24`
-    (aligned with Core infra + the actual host on Node v24.18); Bun is not
-    on PATH and is NOT required.
+    requires Node 22.22.3 / 24.11.1+. This stack pins `engines.node >= 24.11.1`
+    (the CLI minimum accurately encoded; host runs 24.18, aligned with Core
+    infra); Bun is not on PATH and is NOT required.
 
 ## Prerequisites (external, not installed here)
 
-1. Node >= 24 (24.11.1+; host runs 24.18; aligned with Core infra).
+1. Node >= 24.11.1 (host runs 24.18 — the CLI's minimum on the 24 line;
+   aligned with Core infra).
    Bun optional — the Alchemy CLI runs directly under Node, no Bun install needed.
 2. Cloudflare account + credentials via `npx --no-install alchemy profile edit --add Cloudflare`
    (OAuth or API token, interactive) or CI env (`CLOUDFLARE_ACCOUNT_ID` plus

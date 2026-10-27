@@ -67,6 +67,15 @@ describe("deploy origins (Core vs Relay must differ)", () => {
     ).toThrow();
   });
 
+  test("rejects same hostname with different ports (domain is hostname-owned)", () => {
+    expect(() =>
+      parseDeployOrigins("https://x.example.com:443", "https://x.example.com:8443"),
+    ).toThrow();
+    expect(() =>
+      parseDeployOrigins("https://x.example.com", "https://x.example.com:8443"),
+    ).toThrow();
+  });
+
   test("rejects when either side is invalid", () => {
     expect(() =>
       parseDeployOrigins("http://core.example.com", "https://relay.example.com"),

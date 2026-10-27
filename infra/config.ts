@@ -105,10 +105,13 @@ export interface DeployOrigins {
 export function parseDeployOrigins(coreRaw: string, relayRaw: string): DeployOrigins {
   const coreOrigin = parseHttpsOrigin(coreRaw, CORE_ORIGIN_VAR);
   const relayOrigin = parseHttpsOrigin(relayRaw, RELAY_ORIGIN_VAR);
-  if (coreOrigin === relayOrigin) {
+  // Custom-domain ownership is HOSTNAME, not origin: same host with different
+  // ports still maps both `domain` props onto one custom domain (and Core is
+  // adopting the same explicit custom-domain convention on every stage).
+  if (getHostname(coreOrigin) === getHostname(relayOrigin)) {
     throw new Error(
-      `${RELAY_ORIGIN_VAR} must differ from ${CORE_ORIGIN_VAR} ` +
-        `(two custom-domain Workers cannot own the same host)`,
+      `${RELAY_ORIGIN_VAR} must use a different host than ${CORE_ORIGIN_VAR} ` +
+        `(two custom-domain Workers cannot own the same hostname, regardless of port)`,
     );
   }
   return { coreOrigin, relayOrigin };
