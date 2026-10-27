@@ -131,9 +131,13 @@ Alchemy — verified via `--help` reaching `alchemy plan`/`deploy` usage.
   new_sqlite_classes` flow is superseded on first Alchemy deploy — one-way,
   cannot revert. Fresh stages create fresh namespaces (isolated DO state per
   stage by design). Adopting the live Wrangler script (`name:
-  "artisan-relay"` + `--adopt`) is possible but breaks stage isolation (one
-  physical name for all stages) — do NOT do it without ROOT + Core-owner
-  sign-off; default leaves `name` unset so each stage gets its own script.
+  "artisan-relay"` + `--adopt`) is possible but has concrete costs: one
+  physical name for all stages (no stage isolation — every stage would target
+  the same Worker script and live DO namespaces), the script's `exports` map
+  permanently moves to the declarative flow, and the pre-existing custom
+  domain attachment is taken over by the adopting stage. Default leaves
+  `name` unset so each stage gets its own script; only adopt after weighing
+  those consequences for the affected stages.
 - Domain: `domain` = relay origin hostname; DNS + edge cert managed by
   Cloudflare; zone must pre-exist. `workersDev: false` (no `workers.dev` URL;
   `worker.url` is the custom domain). Useful non-secret outputs: `url`,

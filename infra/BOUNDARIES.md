@@ -4,7 +4,7 @@
   deps incl. Effect 3) is untouched by infra changes.
 - No imports from Core, no shared DB/R2/Hyperdrive/Queues. The only cross-repo
   coupling is two PUBLIC origins passed at deploy time (see `.env.example`).
-- Core owns Core infra and communicates through ROOT. Do not add Core
+- Core infra lives in the Core repo. Do not add Core
   resources here, do not read Core state, do not set Core's
   `runWorkerFirst:true` (Core concern, not Relay — Relay serves API only and
   declares no `assets`, so `runWorkerFirst` does not apply).
