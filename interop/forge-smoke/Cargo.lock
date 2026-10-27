@@ -68,15 +68,21 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 name = "artisan-account"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
+ "artisan-api",
  "base64",
  "ed25519-dalek",
+ "futures",
  "getrandom 0.4.3",
  "hex",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "snow",
  "thiserror 2.0.20",
+ "tokio",
+ "tokio-tungstenite",
  "x25519-dalek",
 ]
 
@@ -907,6 +913,8 @@ name = "forge-smoke"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "artisan-account",
+ "artisan-api",
  "forge-engines",
  "forge-http",
  "forge-runs",

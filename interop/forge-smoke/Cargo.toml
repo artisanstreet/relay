@@ -2,13 +2,23 @@
 name = "forge-smoke"
 version = "0.1.0"
 edition = "2021"
-description = "Dev-only Relay interop harness entry: caller-built Hub + production forge_http::account_service::serve_account_relay. No editor edits; path deps only."
+description = "Dev-only Relay interop harness entries: caller-built Hub + production forge_http::account_service::serve_account_relay, plus a native-client prover using the actual Relay transport. No editor edits; path deps only."
+
+[[bin]]
+name = "forge-smoke"
+path = "src/main.rs"
+
+[[bin]]
+name = "native-smoke"
+path = "src/native.rs"
 
 [dependencies]
 forge-http = { path = "../../../editor/crates/forge-http" }
 forge-runs = { path = "../../../editor/crates/forge-runs" }
 forge-store = { path = "../../../editor/crates/forge-store" }
 forge-engines = { path = "../../../editor/crates/forge-engines" }
+artisan-account = { path = "../../../editor/crates/artisan-account" }
+artisan-api = { path = "../../../editor/crates/artisan-api" }
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "io-std"] }
 tokio-util = { version = "=0.7.19", features = ["rt"] }
 anyhow = "=1.0.104"

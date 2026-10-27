@@ -38,6 +38,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EDITOR_DIR = join(root, "..", "editor");
 const SMOKE_DIR = join(root, "interop", "forge-smoke");
 const SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "forge-smoke");
+const NATIVE_BIN = join(EDITOR_DIR, "target", "debug", "native-smoke");
 const CHUNK_RAW = 40 * 1024;
 
 function b64u(b: Uint8Array): string {
@@ -322,7 +323,7 @@ afterAll(async () => {
 });
 
 describe("production rust seam (serve_account_relay)", () => {
-  it("connects, serves /state, streams, and 2 MiB blobs through Relay", async () => {
+  it("connects, serves /state, streams, and 2 MiB drafts through Relay, then proves the native client", async () => {
     // Fresh Editor grant AFTER all slow setup (build, Hub, binary start).
     const ebody = JSON.stringify({
       audience: "ast-relay",
@@ -377,7 +378,7 @@ describe("production rust seam (serve_account_relay)", () => {
     // Editor's view of the Forge enrolled key (authenticated Core record).
     const ml = await api(rig.app, "GET", "/v1/machines", { headers: { cookie: sessionCookie, origin: "http://localhost" } });
     expect(ml.status).toBe(200);
-    const listed = (ml.json as { machines?: { id: string; publicKey: { x: string } }[] }).machines ?? [];
+    const listed = (ml.json as { machines?: { id: string; label?: string; publicKey: { x: string } }[] }).machines ?? [];
     const forgeCnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machineId)?.publicKey.x ?? "") as string, "base64url"));
     expect(forgeCnf.length).toBe(32);
 
@@ -510,6 +511,56 @@ describe("production rust seam (serve_account_relay)", () => {
     editorStream.queueApp(JSON.stringify({ id: "rs2", method: "UNSUBSCRIBE", path: `/events/${streamId}` }));
     const sunsubResp = await collectStreamResponse(ends[1] as End, "rs2", settle, arrived, td);
     expect(sunsubResp["id"]).toBe("rs2");
+
+    // -- NATIVE client proof: the actual RelayClient (same transport as
+    // ForgeClient::via_relay) against the live Core + workerd + Forge ----
+    // Plain binary, no ambient reactor: any GPUI-entry-style reactor miss
+    // fails here instead of hiding behind the JS initiator above.
+    const nativeSk = ed25519.utils.randomSecretKey();
+    const nativeBody = JSON.stringify({
+      audience: "ast-relay",
+      scope: ["relay:connect", "forge:execute", "machine:sync"],
+      ttlSeconds: 300,
+      targetMachineId: machineId,
+      cnf: { kty: "OKP", crv: "Ed25519", x: b64u(ed25519.getPublicKey(nativeSk)) },
+    });
+    const neg = await api(rig.app, "POST", "/v1/grants/issue", {
+      headers: { cookie: sessionCookie, origin: "http://localhost" },
+      rawBody: nativeBody,
+    });
+    expect(neg.status).toBe(200);
+    const nativeJwt = (neg.json as { token: string }).token;
+    const machineLabel = listed.find((m) => m.id === machineId)?.label ?? "forge-smoke";
+    const nativeCfg = {
+      relay_base_url: base,
+      account_id: accountId,
+      machine_id: machineId,
+      forge_ed25519_b64u: b64u(forgeCnf),
+      grant_jwt: nativeJwt,
+      cnf_secret_hex: Buffer.from(nativeSk).toString("hex"),
+      core_base_url: `http://127.0.0.1:${proxyPort}`,
+      session_token: sessionCookie.split(";")[0]?.replace(/^ast_session=/, "") ?? "",
+      draft_scope: "native-smoke",
+    };
+    const nativeOut = (() => {
+      try {
+        return execFileSync(NATIVE_BIN, {
+          input: `${JSON.stringify(nativeCfg)}\n`,
+          timeout: 180_000,
+          encoding: "utf8",
+        });
+      } catch (e) {
+        const err = e as { stdout?: Buffer | string; status?: number; message?: string };
+        const out = typeof err.stdout === "string" ? err.stdout : err.stdout?.toString() ?? "";
+        throw new Error(`native-smoke failed (status ${err.status}): ${out}\n${err.message ?? ""}`);
+      }
+    })();
+    const nativeLines = nativeOut.trim().split("\n").filter((l) => l.trim());
+    const nativeSummary = JSON.parse(nativeLines[nativeLines.length - 1] as string) as Record<string, unknown>;
+    expect(nativeSummary["ok"]).toBe(true);
+    expect(nativeSummary["draft_bytes"]).toBe(2 * 1024 * 1024);
+    expect(typeof nativeSummary["state_head"]).toBe("number");
+    expect(typeof nativeSummary["stream"]).toBe("string");
 
     // -- Core revocation sweeps the live connection ---------------------------
     const rev = await api(rig.app, "POST", `/v1/machines/${machineId}/revoke`, {
