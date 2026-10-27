@@ -8,12 +8,12 @@ import { RevocationClient } from "../services/revocations.ts";
  * grants still expire on their own TTL (fail-closed overall). Next alarm
  * retries. Do NOT tighten to fail-closed on poll.
  */
-export function refresh_revocations(
+export const refresh_revocations = (
   get_room: () => Effect.Effect<RoomState | null>,
   last_fetch_ref: Ref.Ref<number>,
   now_ms: () => number,
-): Effect.Effect<void, never, RelayEnv | RevocationClient> {
-  return Effect.gen(function* () {
+) =>
+  Effect.gen(function* () {
     const cfg = yield* RelayEnv;
     const now = now_ms();
     const last = yield* Ref.get(last_fetch_ref);
@@ -25,4 +25,3 @@ export function refresh_revocations(
     const room = yield* get_room();
     room?.setRevocations(result.value.machines, result.value.keys);
   });
-}

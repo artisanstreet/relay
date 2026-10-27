@@ -117,22 +117,19 @@ export const GrantVerifierLive: Layer.Layer<GrantVerifier, never, HttpClient.Htt
         if (typeof verified.protectedHeader.kid !== "string" || verified.protectedHeader.kid.length === 0) {
           return yield* Effect.fail(new GrantVerificationFailed({ reason: "missing kid" }));
         }
-        try {
-          const checked = check_grant_claims(verified.payload, now, cfg.max_ttl_sec);
-          return {
-            claims: checked.claims,
-            kid: verified.protectedHeader.kid,
-            cnfPk: checked.cnf_pk,
-            scopes: checked.scopes,
-          } satisfies VerifiedGrant;
-        } catch (cause) {
-          return yield* Effect.fail(
-            new GrantVerificationFailed({
-              reason: cause instanceof Error ? cause.message : "bad claims",
-              cause,
-            }),
-          );
-        }
+        const checked = yield* Effect.try({
+          try: () => check_grant_claims(verified.payload, now, cfg.max_ttl_sec),
+          catch: (cause) => new GrantVerificationFailed({
+            reason: cause instanceof Error ? cause.message : "bad claims",
+            cause,
+          }),
+        });
+        return {
+          claims: checked.claims,
+          kid: verified.protectedHeader.kid,
+          cnfPk: checked.cnf_pk,
+          scopes: checked.scopes,
+        } satisfies VerifiedGrant;
       });
     return GrantVerifier.of({ verify_grant });
   }),

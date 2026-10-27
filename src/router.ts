@@ -5,7 +5,7 @@ import { handle_presence } from "./handlers/presence.ts";
 import { handle_admin_gone } from "./handlers/admin-revocations.ts";
 
 export const router = HttpRouter.empty.pipe(
-  HttpRouter.get("/v1/health", handle_health()),
+  HttpRouter.get("/v1/health", handle_health),
   HttpRouter.get(
     "/v1/presence/:account/:machine",
     Effect.gen(function* () {
@@ -15,8 +15,8 @@ export const router = HttpRouter.empty.pipe(
       return yield* handle_presence(account, machine);
     }),
   ),
-  HttpRouter.post("/v1/admin/revocations", handle_admin_gone()),
-  HttpRouter.post("/v1/admin/revocations/:account/:machine", handle_admin_gone()),
+  HttpRouter.post("/v1/admin/revocations", handle_admin_gone),
+  HttpRouter.post("/v1/admin/revocations/:account/:machine", handle_admin_gone),
   HttpRouter.all(
     "*",
     Effect.succeed(

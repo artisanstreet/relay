@@ -13,19 +13,21 @@ function bearer_token(req: HttpServerRequest.HttpServerRequest): string | null {
   return token ? token.trim() || null : null;
 }
 
-function error_json(data: unknown, status: number): Effect.Effect<HttpServerResponse.HttpServerResponse> {
-  return HttpServerResponse.unsafeJson(data, { status });
-}
+const error_json = (
+  data: unknown,
+  status: number,
+): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+  HttpServerResponse.unsafeJson(data, { status });
 
-export function handle_presence(
+export const handle_presence = (
   account: string,
   machine: string,
 ): Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
   HttpServerRequest.HttpServerRequest | RelayEnv | GrantVerifier | GrantAuthority
-> {
-  return Effect.gen(function* () {
+> =>
+  Effect.gen(function* () {
     if (!id_re.test(account) || !id_re.test(machine)) {
       return yield* error_json({ error: "bad room id" }, 400);
     }
@@ -42,28 +44,20 @@ export function handle_presence(
     if (!has_scope(g, "relay:connect")) return yield* error_json({ error: "forbidden" }, 403);
     const cfg = yield* RelayEnv;
     const stub = cfg.raw_env.MACHINE_ROOM.get(room_id(cfg.raw_env.MACHINE_ROOM, account, machine));
-    const upstream = yield* Effect.match(
-      Effect.tryPromise({
-        try: () => stub.fetch("https://relay/presence"),
-        catch: (cause) => String(cause),
-      }),
-      {
-        onFailure: () => null as Response | null,
-        onSuccess: (r: Response) => r as Response | null,
-      },
+    const fetch_exit = yield* Effect.exit(
+      Effect.promise(() => stub.fetch("https://relay/presence")),
     );
-    if (upstream === null) return yield* error_json({ error: "storage unavailable" }, 500);
+    if (fetch_exit._tag === "Failure") return yield* error_json({ error: "storage unavailable" }, 500);
+    const upstream = fetch_exit.value;
     const status = upstream.status;
-    let body: unknown = null;
-    try {
-      body = (yield* Effect.promise(() => upstream.json() as Promise<unknown>)) as unknown;
-    } catch {
-      return yield* error_json({ error: "storage unavailable" }, 500);
-    }
+    const body_exit = yield* Effect.exit(
+      Effect.promise(() => upstream.json() as Promise<unknown>),
+    );
+    if (body_exit._tag === "Failure") return yield* error_json({ error: "storage unavailable" }, 500);
+    const body: unknown = body_exit.value;
     if (status < 200 || status >= 300) {
       const payload = body ?? { error: "storage unavailable" };
       return yield* error_json(payload, status);
     }
     return yield* error_json(body, 200);
   });
-}

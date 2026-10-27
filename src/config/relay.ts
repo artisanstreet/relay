@@ -28,8 +28,8 @@ export class RelayEnv extends Context.Tag("RelayEnv")<RelayEnv, RelayConfig>() {
 
 export const REVOCATION_POLL_MS_DEFAULT = 60_000;
 
-export function parse_env(env: Env): Effect.Effect<RelayConfig, RelayMisconfigured> {
-  return Effect.gen(function* () {
+export const parse_env = (env: Env): Effect.Effect<RelayConfig, RelayMisconfigured> =>
+  Effect.gen(function* () {
     if (!env.CORE_JWKS_URL || !env.CORE_ISS) {
       return yield* Effect.fail(
         new RelayMisconfigured({ reason: "relay misconfigured" }),
@@ -56,7 +56,6 @@ export function parse_env(env: Env): Effect.Effect<RelayConfig, RelayMisconfigur
       raw_env: env,
     } satisfies RelayConfig;
   });
-}
 
 export function room_id(
   ns: DurableObjectNamespace,

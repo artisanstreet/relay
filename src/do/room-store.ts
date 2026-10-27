@@ -19,12 +19,12 @@ interface StoreState {
   loading: Deferred.Deferred<RoomState | null, StorageUnavailable> | null;
 }
 
-export function make_room_store(
+export const make_room_store = (
   do_state: DurableObjectState,
   verify: VerifyGrant,
   now_ms: () => number,
-): Effect.Effect<RoomStoreApi> {
-  return Effect.gen(function* () {
+): Effect.Effect<RoomStoreApi> =>
+  Effect.gen(function* () {
     const ref = yield* Ref.make<StoreState>({ room: null, loading: null });
     const sem = yield* Effect.makeSemaphore(1);
 
@@ -40,12 +40,10 @@ export function make_room_store(
         );
         if (!snap) return null;
         const room = new RoomState(snap.account, snap.machine, verify, now_ms);
-        try {
-          room.restore(snap, socket_for);
-        } catch {
-          yield* Effect.logError("snapshot restore failed: mismatch");
-          return yield* Effect.fail(new StorageUnavailable({ reason: "snapshot mismatch" }));
-        }
+        yield* Effect.try({
+          try: () => room.restore(snap, socket_for),
+          catch: () => new StorageUnavailable({ reason: "snapshot mismatch" }),
+        }).pipe(Effect.tapError(() => Effect.logError("snapshot restore failed: mismatch")));
         yield* Ref.update(ref, (s) => ({ ...s, room }));
         return room;
       });
@@ -103,4 +101,3 @@ export function make_room_store(
       flush: () => persist_once(),
     } satisfies RoomStoreApi;
   });
-}

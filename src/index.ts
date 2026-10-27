@@ -69,7 +69,7 @@ export default {
 
       if (!cfg) {
         if (req.method === "GET" && path === "/v1/health") {
-          const healthy = yield* handle_health();
+          const healthy = yield* handle_health;
           return with_cors(HttpServerResponse.toWeb(healthy), req, portal_origin);
         }
         return error_json({ error: "relay misconfigured" }, 500);

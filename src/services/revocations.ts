@@ -62,11 +62,10 @@ export const RevocationClientLive: Layer.Layer<RevocationClient, never, HttpClie
           res.json,
           (cause) => new RevocationFetchFailed({ reason: "revocations decode failed", cause }),
         );
-        try {
-          return parse_revocations_response(body);
-        } catch (cause) {
-          return yield* Effect.fail(new RevocationFetchFailed({ reason: "revocations parse failed", cause }));
-        }
+        return yield* Effect.try({
+          try: () => parse_revocations_response(body),
+          catch: (cause) => new RevocationFetchFailed({ reason: "revocations parse failed", cause }),
+        });
       });
     return RevocationClient.of({ fetch_revocations });
   }),

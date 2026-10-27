@@ -15,11 +15,11 @@ export function next_wake_ms(
   return next;
 }
 
-export function schedule_alarm(
+export const schedule_alarm = (
   do_state: DurableObjectState,
   next: number | null,
-): Effect.Effect<void> {
-  return Effect.gen(function* () {
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
     const result = yield* Effect.exit(
       Effect.tryPromise({
         try: async () => {
@@ -33,4 +33,3 @@ export function schedule_alarm(
       yield* Effect.logError("alarm schedule failed");
     }
   });
-}

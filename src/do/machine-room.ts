@@ -36,12 +36,60 @@ function adapter_for(live: Map<string, WebSocket>, conn_id: string): RoomSocket 
   };
 }
 
+/** Best-effort socket close: a gone socket is expected, never an error. */
+const close_quietly = (ws: WebSocket, code: number, reason: string): Effect.Effect<void> =>
+  Effect.try({
+    try: () => ws.close(code, reason),
+    catch: () => undefined,
+  }).pipe(Effect.ignore);
+
+type DoRuntime = ManagedRuntime.ManagedRuntime<RevocationClient | RelayEnv, never>;
+
+const run_background = (
+  do_state: DurableObjectState,
+  runtime: DoRuntime,
+  effect: Effect.Effect<void, unknown, RevocationClient | RelayEnv>,
+): void => {
+  do_state.waitUntil(runtime.runPromise(effect));
+};
+
+const flush_shared = (store: RoomStoreApi, do_state: DurableObjectState): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(store.flush());
+    if (exit._tag === "Failure") {
+      for (const ws of do_state.getWebSockets()) {
+        yield* close_quietly(ws, 1011, "storage-unavailable");
+      }
+    }
+  });
+
+const schedule_shared = (
+  store: RoomStoreApi,
+  last_ref: Ref.Ref<number>,
+  poll_ms: number,
+  do_state: DurableObjectState,
+): Effect.Effect<void> =>
+  Effect.catchAll(
+    Effect.gen(function* () {
+      const room = yield* store.get_room();
+      const last = yield* Ref.get(last_ref);
+      yield* schedule_alarm(do_state, next_wake_ms(room, last, poll_ms));
+    }),
+    () => Effect.void,
+  );
+
+const refresh_shared = (
+  store: RoomStoreApi,
+  last_ref: Ref.Ref<number>,
+): Effect.Effect<void, never, RelayEnv | RevocationClient> =>
+  Effect.ignore(refresh_revocations(() => store.get_room(), last_ref, () => Date.now()));
+
 export class MachineRoom implements DurableObject {
   private state: DurableObjectState;
   private relay_cfg: RelayEnv["Type"];
   private store: RoomStoreApi;
   private last_fetch_ref: Ref.Ref<number>;
-  private runtime: ManagedRuntime.ManagedRuntime<RevocationClient | RelayEnv, never>;
+  private runtime: DoRuntime;
   private verify_fn: VerifyGrant;
 
   constructor(state: DurableObjectState, env: Env) {
@@ -70,51 +118,13 @@ export class MachineRoom implements DurableObject {
     this.store = Effect.runSync(make_room_store(do_state, this.verify_fn, () => Date.now()));
   }
 
-  private flush_shared(): Effect.Effect<void> {
-    const store = this.store;
-    const do_state = this.state;
-    return Effect.gen(function* () {
-      const exit = yield* Effect.exit(store.flush());
-      if (exit._tag === "Failure") {
-        for (const ws of do_state.getWebSockets()) {
-          try {
-            ws.close(1011, "storage-unavailable");
-          } catch { /* expected: socket gone, best effort */ }
-        }
-      }
-    });
-  }
-
-  private background(effect: Effect.Effect<void>): void {
-    this.state.waitUntil(this.runtime.runPromise(effect));
-  }
-
-  private schedule_shared(): Effect.Effect<void> {
-    const store = this.store;
-    const last_ref = this.last_fetch_ref;
-    const cfg = this.relay_cfg;
-    const do_state = this.state;
-    return Effect.catchAll(
-      Effect.gen(function* () {
-        const room = yield* store.get_room();
-        const last = yield* Ref.get(last_ref);
-        yield* schedule_alarm(do_state, next_wake_ms(room, last, cfg.poll_ms));
-      }),
-      () => Effect.void,
-    );
-  }
-
-  private refresh_shared(): Effect.Effect<void, never, RelayEnv | RevocationClient> {
-    const store = this.store;
-    const last_ref = this.last_fetch_ref;
-    return Effect.ignore(refresh_revocations(() => store.get_room(), last_ref, () => Date.now()));
-  }
-
   async fetch(req: Request): Promise<Response> {
     const store = this.store;
     const do_state = this.state;
     const verify_fn = this.verify_fn;
-    const self_ref = this;
+    const runtime = this.runtime;
+    const last_ref = this.last_fetch_ref;
+    const poll_ms = this.relay_cfg.poll_ms;
     const program = Effect.gen(function* () {
       const url = new URL(req.url);
       const m = url.pathname.match(/^\/room\/([^/]+)\/([^/]+)$/);
@@ -153,9 +163,9 @@ export class MachineRoom implements DurableObject {
         };
         const current = yield* store.get_room();
         current?.onConnect(conn, adapter);
-        do_state.waitUntil(self_ref.runtime.runPromise(self_ref.flush_shared()));
-        do_state.waitUntil(self_ref.runtime.runPromise(self_ref.refresh_shared()));
-        yield* self_ref.schedule_shared();
+        run_background(do_state, runtime, flush_shared(store, do_state));
+        run_background(do_state, runtime, refresh_shared(store, last_ref));
+        yield* schedule_shared(store, last_ref, poll_ms, do_state);
         return new Response(null, { status: 101, webSocket: client });
       }
       if (url.pathname === "/presence") {
@@ -177,14 +187,13 @@ export class MachineRoom implements DurableObject {
   async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer): Promise<void> {
     const store = this.store;
     const do_state = this.state;
+    const runtime = this.runtime;
+    const last_ref = this.last_fetch_ref;
+    const poll_ms = this.relay_cfg.poll_ms;
     const program = Effect.gen(function* () {
       const att = ws.deserializeAttachment() as Attachment | null;
       if (!att) {
-        yield* Effect.sync(() => {
-          try {
-            ws.close(4401, "gone");
-          } catch { /* expected: socket gone, best effort */ }
-        });
+        yield* close_quietly(ws, 4401, "gone");
         return;
       }
       const live = live_map(do_state);
@@ -192,29 +201,17 @@ export class MachineRoom implements DurableObject {
       if (!existing) {
         const exit = yield* Effect.exit(store.ensure_loaded((id) => adapter_for(live, id)));
         if (exit._tag === "Failure") {
-          yield* Effect.sync(() => {
-            try {
-              ws.close(1011, "storage-unavailable");
-            } catch { /* expected: socket gone, best effort */ }
-          });
+          yield* close_quietly(ws, 1011, "storage-unavailable");
           return;
         }
         if (exit.value === null) {
-          yield* Effect.sync(() => {
-            try {
-              ws.close(4401, "gone");
-            } catch { /* expected: socket gone, best effort */ }
-          });
+          yield* close_quietly(ws, 4401, "gone");
           return;
         }
       }
       const current = yield* store.get_room();
       if (!current) {
-        yield* Effect.sync(() => {
-          try {
-            ws.close(4401, "gone");
-          } catch { /* expected: socket gone, best effort */ }
-        });
+        yield* close_quietly(ws, 4401, "gone");
         return;
       }
       if (!current.hasConn(att.conn)) {
@@ -225,17 +222,18 @@ export class MachineRoom implements DurableObject {
         current.onConnect(att.conn, adapter);
       }
       yield* Effect.ignore(Effect.promise(() => current.onMessage(att.conn, msg)));
-      do_state.waitUntil(self_ref.runtime.runPromise(self_ref.flush_shared()));
-      yield* self_ref.schedule_shared();
+      run_background(do_state, runtime, flush_shared(store, do_state));
+      yield* schedule_shared(store, last_ref, poll_ms, do_state);
     });
-    const self_ref = this;
     await this.runtime.runPromise(program);
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
     const store = this.store;
     const do_state = this.state;
-    const self_ref = this;
+    const runtime = this.runtime;
+    const last_ref = this.last_fetch_ref;
+    const poll_ms = this.relay_cfg.poll_ms;
     const program = Effect.gen(function* () {
       const att = ws.deserializeAttachment() as Attachment | null;
       if (!att) return;
@@ -246,8 +244,8 @@ export class MachineRoom implements DurableObject {
       }
       const current = yield* store.get_room();
       current?.onClose(att.conn);
-      do_state.waitUntil(self_ref.runtime.runPromise(self_ref.flush_shared()));
-      yield* self_ref.schedule_shared();
+      run_background(do_state, runtime, flush_shared(store, do_state));
+      yield* schedule_shared(store, last_ref, poll_ms, do_state);
     });
     await this.runtime.runPromise(program);
   }
@@ -255,7 +253,9 @@ export class MachineRoom implements DurableObject {
   async webSocketError(ws: WebSocket): Promise<void> {
     const store = this.store;
     const do_state = this.state;
-    const self_ref = this;
+    const runtime = this.runtime;
+    const last_ref = this.last_fetch_ref;
+    const poll_ms = this.relay_cfg.poll_ms;
     const program = Effect.gen(function* () {
       const att = ws.deserializeAttachment() as Attachment | null;
       if (att) {
@@ -267,13 +267,9 @@ export class MachineRoom implements DurableObject {
         const current = yield* store.get_room();
         current?.onClose(att.conn);
       }
-      yield* Effect.sync(() => {
-        try {
-          ws.close(1011, "error");
-        } catch { /* expected: socket gone, best effort */ }
-      });
-      do_state.waitUntil(self_ref.runtime.runPromise(self_ref.flush_shared()));
-      yield* self_ref.schedule_shared();
+      yield* close_quietly(ws, 1011, "error");
+      run_background(do_state, runtime, flush_shared(store, do_state));
+      yield* schedule_shared(store, last_ref, poll_ms, do_state);
     });
     await this.runtime.runPromise(program);
   }
@@ -281,7 +277,9 @@ export class MachineRoom implements DurableObject {
   async alarm(): Promise<void> {
     const store = this.store;
     const do_state = this.state;
-    const self_ref = this;
+    const runtime = this.runtime;
+    const last_ref = this.last_fetch_ref;
+    const poll_ms = this.relay_cfg.poll_ms;
     const program = Effect.gen(function* () {
       const live = live_map(do_state);
       const existing = yield* store.get_room();
@@ -294,11 +292,11 @@ export class MachineRoom implements DurableObject {
           return;
         }
       }
-      yield* self_ref.refresh_shared();
+      yield* refresh_shared(store, last_ref);
       const current = yield* store.get_room();
       current?.tick();
-      do_state.waitUntil(self_ref.runtime.runPromise(self_ref.flush_shared()));
-      yield* self_ref.schedule_shared();
+      run_background(do_state, runtime, flush_shared(store, do_state));
+      yield* schedule_shared(store, last_ref, poll_ms, do_state);
     });
     await this.runtime.runPromise(program);
   }
