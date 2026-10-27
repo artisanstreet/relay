@@ -61,7 +61,7 @@ identity, grants, fingerprints (Core), threads/runs/files (Forge).
    + src/services/grants.ts; URL derivable from iss — confirm).
 2. Core-issued artifact requested: `core/fixtures/v1/core-issued.json`
    ({origin, iss, aud, grantJwt, jwks, revocations, nowSec}). On arrival:
-   `node scripts/copy-core-fixture.mjs` (byte-exact, no hand edits) then
+   `node --experimental-strip-types scripts/copy-core-fixture.ts` (byte-exact, no hand edits) then
    `test/core-issued.test.ts` verifies the real bytes. The shape mirror
    (`contracts/fixtures/core-v1.json`) is NOT a stand-in.
 2. `iss`, JWKS URL, `aud` (`ast-relay` default).
