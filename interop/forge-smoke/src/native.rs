@@ -4,10 +4,13 @@
 //! Relay + production Forge connector.
 //!
 //! The Node harness spawns this binary, writes one JSON config line, and
-//! reads JSON result lines. Plain `fn main` on purpose: no `#[tokio::main]`,
-//! so every call enters with no ambient Tokio reactor — the same posture
-//! as a GPUI background entry. Any reactor-dependent shortcut panics here
-//! instead of hiding behind a test runtime.
+//! reads JSON result lines. Plain `fn main` driving one explicit
+//! `Runtime::block_on`: this proves the live client path end to end, but
+//! `block_on` DOES provide a reactor inside `run` — so this binary is live
+//! proof, not no-reactor proof. The no-ambient-reactor entry is covered by
+//! `editor_core`'s `relay_dial_without_tokio_reactor_fails_with_
+//! connection_refused` test, which polls the real dialer from a GPUI
+//! executor with no Tokio runtime in scope.
 //!
 //! stdin:  {"relay_base_url": ..., "core_base_url": ..., "account_id": ...,
 //!          "machine_id": ..., "forge_ed25519_b64u": ..., "grant_jwt": ...,
@@ -38,7 +41,9 @@ fn main() {
         Ok(runtime) => runtime,
         Err(e) => fail(&format!("runtime: {e}")),
     };
-    // No ambient reactor in this frame: `run` must hop onto runtimes itself.
+    // block_on provides the reactor for `run`; the GPUI-entry posture
+    // (no ambient reactor at the call site) is covered by the editor-core
+    // executor regression test, not here.
     let code = runtime.block_on(run());
     std::process::exit(code);
 }

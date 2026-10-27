@@ -38,7 +38,7 @@ const INIT_EPH_PRIV = "333333333333333333333333333333333333333333333333333333333
 const RESP_EPH_PRIV = "4444444444444444444444444444444444444444444444444444444444444444";
 const INIT_CNF_SEED = "5555555555555555555555555555555555555555555555555555555555555555";
 const RESP_CNF_SEED = "6666666666666666666666666666666666666666666666666666666666666666";
-const CTX = { account: "fixture-acct", machine: "fixture-forge", channel: "fixture-ch" };
+const CTX = { account: "acct_01ARZ3NDEKTSV4RRFFQ69G5FAV", machine: "mch_01ARZ3NDEKTSV4RRFFQ69G5FB7", channel: "fixture-ch" };
 const GRANT_IAT = 2_000_000_000;
 const GRANT_JTI = "fixture-grant-001";
 const PLAINTEXT_A = "fixture message initiator to responder";
@@ -72,6 +72,7 @@ function staticPair(privHex: string) {
 
 interface FixtureFile {
   protocol: string;
+  ctx: { account: string; machine: string; channel: string };
   prologue_hex: string;
   init_static_pub: string;
   resp_static_pub: string;
@@ -89,6 +90,24 @@ interface FixtureFile {
   data_resp_ct: string;
   plaintext_a: string;
   plaintext_b: string;
+}
+
+/** Real-deadline wait for a channel phase. The old fixed 50-tick
+ * `setImmediate` spin could elapse before async JWT verification finished
+ * under full-suite load, leaving `takeOutbound()[0]` undefined and failing
+ * downstream with an opaque `ct.length` TypeError. This waits on wall
+ * time and names the stage that timed out. */
+async function waitForPhase(
+  ch: { getPhase: () => string },
+  phase: string,
+  what: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (ch.getPhase() !== phase) {
+    if (Date.now() > deadline) throw new Error(`${what}: timed out waiting for phase ${phase}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
 }
 
 async function buildFixture(): Promise<FixtureFile> {
@@ -131,11 +150,15 @@ async function buildFixture(): Promise<FixtureFile> {
   const m3 = init.nextHandshakeMessage();
   resp.receiveHandshakeMessage(m3);
   const [cInit] = init.takeOutbound();
-  resp.receiveTransport(cInit as Uint8Array);
-  for (let i = 0; i < 50 && resp.getPhase() !== "open"; i++) await new Promise((r) => setImmediate(r));
+  if (!(cInit instanceof Uint8Array)) throw new Error("fixture initiator confirm missing");
+  resp.receiveTransport(cInit);
+  await waitForPhase(resp, "open", "fixture responder confirm (async JWT verify)", 10_000);
   const [cResp] = resp.takeOutbound();
-  init.receiveTransport(cResp as Uint8Array);
-  for (let i = 0; i < 50 && init.getPhase() !== "open"; i++) await new Promise((r) => setImmediate(r));
+  if (!(cResp instanceof Uint8Array)) {
+    throw new Error("fixture responder confirm missing: channel open but no outbound ciphertext");
+  }
+  init.receiveTransport(cResp);
+  await waitForPhase(init, "open", "fixture initiator confirm", 10_000);
   if (init.getPhase() !== "open" || resp.getPhase() !== "open") throw new Error("fixture channels did not open");
   const dataInit = init.seal(new TextEncoder().encode(PLAINTEXT_A));
   const opened = resp.receiveTransport(dataInit.ct);
@@ -145,6 +168,7 @@ async function buildFixture(): Promise<FixtureFile> {
   if (new TextDecoder().decode(openedB as Uint8Array) !== PLAINTEXT_B) throw new Error("fixture data mismatch");
   return {
     protocol: "Noise_XX_25519_ChaChaPoly_BLAKE2b",
+    ctx: { ...CTX },
     prologue_hex: hex(prologueBytes(CTX)),
     init_static_pub: hex(staticPair(INIT_STATIC_PRIV).publicKey),
     resp_static_pub: hex(staticPair(RESP_STATIC_PRIV).publicKey),

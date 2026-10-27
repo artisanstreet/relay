@@ -101,6 +101,7 @@ let editorGrantJwt = "";
 let editorJti = "";
 let sessionCookie = "";
 let dataDir = "";
+let coreBaseUrl = "";
 let smoke: ChildProcess | null = null;
 const smokeLog: string[] = [];
 const smokeOut: string[] = [];
@@ -186,6 +187,7 @@ beforeAll(async () => {
   });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", () => r()));
   const proxyPort = (proxy.address() as AddressInfo).port;
+  coreBaseUrl = `http://127.0.0.1:${proxyPort}`;
 
   await build({
     entryPoints: ["src/index.ts"],
@@ -294,7 +296,7 @@ beforeAll(async () => {
   };
   sendLine({
     ws_url: `${base.replace("http", "ws")}/v1/route/${accountId}/${machineId}`,
-    core_base_url: `http://127.0.0.1:${proxyPort}`,
+    core_base_url: coreBaseUrl,
     machine_id: machineId,
     account_id: accountId,
     machine_secret_hex: Buffer.from(forgeSk).toString("hex"),
@@ -538,23 +540,15 @@ describe("production rust seam (serve_account_relay)", () => {
       forge_ed25519_b64u: b64u(forgeCnf),
       grant_jwt: nativeJwt,
       cnf_secret_hex: Buffer.from(nativeSk).toString("hex"),
-      core_base_url: `http://127.0.0.1:${proxyPort}`,
+      core_base_url: coreBaseUrl,
       session_token: sessionCookie.split(";")[0]?.replace(/^ast_session=/, "") ?? "",
       draft_scope: "native-smoke",
     };
-    const nativeOut = (() => {
-      try {
-        return execFileSync(NATIVE_BIN, {
-          input: `${JSON.stringify(nativeCfg)}\n`,
-          timeout: 180_000,
-          encoding: "utf8",
-        });
-      } catch (e) {
-        const err = e as { stdout?: Buffer | string; status?: number; message?: string };
-        const out = typeof err.stdout === "string" ? err.stdout : err.stdout?.toString() ?? "";
-        throw new Error(`native-smoke failed (status ${err.status}): ${out}\n${err.message ?? ""}`);
-      }
-    })();
+    // Async spawn (never execFileSync): the same Node event loop hosts the
+    // live Core HTTP proxy that the Forge's revocation poll and the Relay's
+    // JWKS fetch hit. Blocking the loop for the whole native run would
+    // freeze those fetches and fake a client stall.
+    const nativeOut = await runNativeSmoke(nativeCfg);
     const nativeLines = nativeOut.trim().split("\n").filter((l) => l.trim());
     const nativeSummary = JSON.parse(nativeLines[nativeLines.length - 1] as string) as Record<string, unknown>;
     expect(nativeSummary["ok"]).toBe(true);
@@ -571,8 +565,44 @@ describe("production rust seam (serve_account_relay)", () => {
   }, 300_000);
 });
 
-function chunkTransfer(transfer: string, bytes: Uint8Array): string[] {
-  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_RAW));
+// Runs the native client binary WITHOUT blocking the Node event loop.
+// The same loop serves the Core HTTP proxy (Forge revocation polls,
+// Relay JWKS fetches) and pumps the JS initiator link, so a synchronous
+// execFileSync here would freeze the server side and fake a client stall.
+// Bounded 180 s timeout, stdin config, sanitized captured output.
+function runNativeSmoke(cfg: Record<string, unknown>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(NATIVE_BIN, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`native-smoke timed out after 180 s; stderr: ${stderr.slice(-2000)}`));
+    }, 180_000);
+    child.stdout?.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`native-smoke failed (status ${code}): ${stdout}\n${stderr.slice(-2000)}`));
+      }
+    });
+    child.stdin?.write(`${JSON.stringify(cfg)}\n`);
+    child.stdin?.end();
+  });
+}
+
+function chunkTransfer(transfer: string, bytes: Uint8Array): string[] {  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_RAW));
   const out: string[] = [];
   for (let i = 0; i < total; i++) {
     out.push(
