@@ -3,6 +3,8 @@
 // alchemy.run.ts imports everything below; tests import it too — never
 // mirror these literals anywhere else.
 
+import { Result } from "effect";
+
 /** Alchemy stack name. Distinct from Core's stack; both share the default
  *  account-level Cloudflare state store, isolated by (stack, stage). */
 export const STACK_NAME = "artisan-relay";
@@ -40,12 +42,13 @@ export const RELAY_ORIGIN_VAR = "AST_RELAY_ORIGIN";
 export function parse_https_origin(raw: string, var_name: string): string {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error(`${var_name} is required (exact https origin)`);
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    throw new Error(`${var_name} must be an exact https origin, got unparsable value`);
-  }
+  const url = Result.getOrThrowWith(
+    Result.try({
+      try: () => new URL(trimmed),
+      catch: () => new Error(`${var_name} must be an exact https origin, got unparsable value`),
+    }),
+    (e) => e as Error,
+  );
   if (url.protocol !== "https:") {
     throw new Error(`${var_name} must be https (no http, no wildcards)`);
   }
