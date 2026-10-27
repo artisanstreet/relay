@@ -93,6 +93,9 @@ bare-`alchemy` form used here is `npx --no-install alchemy profile ...`
 Root conveniences (`relay/package.json`, deps untouched):
 `npm run infra:check`, `npm run infra:plan -- --stage <s>`,
 `npm run infra:deploy -- --stage <s>` (delegate with `npm --prefix infra`).
+The trailing `--` in the wrapper scripts is load-bearing: without it the
+inner npm swallows flags (`--stage`, `--help`) instead of forwarding them to
+Alchemy — verified via `--help` reaching `alchemy plan`/`deploy` usage.
 
 ## Auth / bootstrap / safety (read before any cloud command)
 
