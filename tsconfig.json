@@ -24,5 +24,15 @@
     "scripts/**/*.ts",
     "vite.config.ts",
     "types/**/*.d.ts"
+  ],
+  "contentMappers": [
+    {
+      "package": "reylo",
+      "extensions": [
+        ".sql",
+        ".reylo.yaml",
+        ".reylo.yml"
+      ]
+    }
   ]
 }
