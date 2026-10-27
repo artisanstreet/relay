@@ -1,17 +1,15 @@
+// Behavioral tests for deploy-input validation (offline, no cloud).
+// Every case exercises real behavior used by alchemy.run.ts: origin parsing,
+// Core/Relay distinctness, var derivation. Literals below come from the task
+// spec / Cloudflare constraints — not from the implementation.
 import { describe, expect, test } from "vitest";
 import {
-  COMPATIBILITY_DATE,
-  DO_BINDING_NAME,
-  DO_CLASS_NAME,
   GRANT_MAX_TTL_S,
   RELAY_AUD,
   REVOCATION_POLL_MS,
-  STACK_NAME,
-  WORKER_LOGICAL_ID,
-  WORKER_MAIN,
   deriveRelayVars,
   getHostname,
-  isValidStage,
+  parseDeployOrigins,
   parseHttpsOrigin,
 } from "../config.ts";
 
@@ -29,7 +27,7 @@ describe("origins (exact https, fail closed)", () => {
     );
   });
 
-  test("rejects non-origins", () => {
+  test("rejects non-origins and wildcards", () => {
     for (const bad of [
       "",
       "   ",
@@ -39,16 +37,43 @@ describe("origins (exact https, fail closed)", () => {
       "https://core.example.com?x=1",
       "https://core.example.com#frag",
       "https://user@core.example.com/",
+      "https://*.example.com",
+      "https://%2A.example.com",
+      "https://foo.*.example.com",
       "not-a-url",
       "ftp://core.example.com",
     ]) {
       expect(() => parseHttpsOrigin(bad, "V"), JSON.stringify(bad)).toThrow();
     }
   });
+});
 
-  test("production origins must be exact https (no http, no path)", () => {
-    expect(() => parseHttpsOrigin("http://relay.example.com", "AST_RELAY_ORIGIN")).toThrow();
-    expect(() => parseHttpsOrigin("https://relay.example.com/extra", "AST_RELAY_ORIGIN")).toThrow();
+describe("deploy origins (Core vs Relay must differ)", () => {
+  test("accepts two distinct origins", () => {
+    expect(
+      parseDeployOrigins("https://core.example.com", "https://relay.example.com"),
+    ).toEqual({
+      coreOrigin: "https://core.example.com",
+      relayOrigin: "https://relay.example.com",
+    });
+  });
+
+  test("rejects identical origins (normalization-aware)", () => {
+    expect(() =>
+      parseDeployOrigins("https://x.example.com", "https://x.example.com"),
+    ).toThrow();
+    expect(() =>
+      parseDeployOrigins("https://x.example.com", "https://x.example.com/"),
+    ).toThrow();
+  });
+
+  test("rejects when either side is invalid", () => {
+    expect(() =>
+      parseDeployOrigins("http://core.example.com", "https://relay.example.com"),
+    ).toThrow();
+    expect(() =>
+      parseDeployOrigins("https://core.example.com", "https://*.example.com"),
+    ).toThrow();
   });
 });
 
@@ -68,30 +93,9 @@ describe("derived Relay vars (exact)", () => {
   });
 });
 
-describe("domain / stage separation", () => {
+describe("domain", () => {
   test("domain is the relay origin hostname (zone inferred, must pre-exist)", () => {
     expect(getHostname("https://relay.example.com")).toBe("relay.example.com");
     expect(getHostname("https://relay.example.com:8443")).toBe("relay.example.com");
-  });
-
-  test("stage names follow Alchemy's [a-z0-9][-_a-z0-9]* rule", () => {
-    for (const ok of ["prod", "staging", "pr-42", "live_sam", "dev_sam", "test_sam"]) {
-      expect(isValidStage(ok), ok).toBe(true);
-    }
-    for (const bad of ["", "Prod", "pr/42", "live sam", "-lead", "_lead"]) {
-      expect(isValidStage(bad), JSON.stringify(bad)).toBe(false);
-    }
-  });
-
-  test("stack identity is Relay-owned and distinct from Core", () => {
-    expect(STACK_NAME).toBe("artisan-relay");
-    expect(WORKER_LOGICAL_ID).toBe("Relay");
-    expect(WORKER_MAIN).toBe("../src/index.ts");
-    expect(COMPATIBILITY_DATE).toBe("2026-10-26");
-  });
-
-  test("DO identity is stable: MACHINE_ROOM -> MachineRoom (SQLite, hibernation in runtime)", () => {
-    expect(DO_BINDING_NAME).toBe("MACHINE_ROOM");
-    expect(DO_CLASS_NAME).toBe("MachineRoom");
   });
 });

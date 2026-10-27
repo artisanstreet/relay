@@ -39,7 +39,7 @@ import {
   WORKER_MAIN,
   deriveRelayVars,
   getHostname,
-  parseHttpsOrigin,
+  parseDeployOrigins,
 } from "./config.ts";
 
 export default Alchemy.Stack(
@@ -47,14 +47,15 @@ export default Alchemy.Stack(
   { providers: Cloudflare.providers(), state: Cloudflare.state() },
   Effect.gen(function* () {
     const stack = yield* Stack;
-    // Fail closed: missing vars are ConfigErrors; malformed values throw
-    // inside `map` (deploy fails with the var name + reason).
-    const coreOrigin = yield* Config.String(CORE_ORIGIN_VAR).pipe(
-      Config.map((raw) => parseHttpsOrigin(raw, CORE_ORIGIN_VAR)),
-    );
-    const relayOrigin = yield* Config.String(RELAY_ORIGIN_VAR).pipe(
-      Config.map((raw) => parseHttpsOrigin(raw, RELAY_ORIGIN_VAR)),
-    );
+    // Fail closed: missing vars are ConfigErrors; malformed or colliding
+    // values throw inside the effect (deploy dies with var name + reason).
+    // The pair is validated TOGETHER: identical Core/Relay origins are
+    // rejected (two custom-domain Workers cannot own the same host).
+    const [coreRaw, relayRaw] = yield* Effect.all([
+      Config.String(CORE_ORIGIN_VAR),
+      Config.String(RELAY_ORIGIN_VAR),
+    ]);
+    const { coreOrigin, relayOrigin } = parseDeployOrigins(coreRaw, relayRaw);
 
     const vars = deriveRelayVars(coreOrigin);
     const domain = getHostname(relayOrigin);

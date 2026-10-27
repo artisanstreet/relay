@@ -4,6 +4,9 @@ dist/
 .alchemy/
 .env
 .env.local
+.env.prod
+.env.staging
+.env.preview
 .dev.vars
 target/
 *.log

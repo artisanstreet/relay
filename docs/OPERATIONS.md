@@ -6,8 +6,8 @@ Production deploys run from `infra/` (Alchemy v2, isolated package — see
 `infra/README.md`). Nothing below has been deployed by the infra task; all
 cloud commands require an authorized operator.
 
-1. Cloudflare account + Alchemy profile (`alchemy profile edit --add Cloudflare`)
-   or CI env. No secrets in repo (deploy inputs are two public https origins).
+1. Cloudflare account + Alchemy profile (`npx --no-install alchemy profile edit --add Cloudflare`
+   from `infra/`) or CI env. No secrets in repo (deploy inputs are two public https origins).
 2. Public inputs via `infra/.env` (see `infra/.env.example`; stage from CLI):
    - `AST_CORE_ORIGIN` — exact Core origin. Derives `CORE_JWKS_URL`
      (`${AST_CORE_ORIGIN}/.well-known/jwks.json`), `CORE_ISS`
@@ -20,7 +20,10 @@ cloud commands require an authorized operator.
    `REVOCATION_POLL_MS=60000` (min 1000).
 4. `cd infra && npm ci && npm run check` (offline gate: typecheck + tests +
    bundle — must be green; touches no cloud), then
-   `alchemy deploy --stage <prod|staging|pr-N> [--profile <name>]`.
+   `npm run deploy -- --stage <prod|staging> [--profile <name>]` (local
+   `alchemy` binary, no global install). Previews need their OWN origins via
+   `--env-file .env.preview` — never reuse prod domains for another stage
+   (the custom domain is single-owner; see `infra/README.md`).
    First-ever run bootstraps the account state store (cloud mutation — do it
    once explicitly via `npm run state:bootstrap`; CI fails loudly if missing).
    Each stage gets an isolated Worker script + isolated DO state. Durable

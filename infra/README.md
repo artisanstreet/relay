@@ -39,6 +39,20 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
     `{ name }`, zone inferred, must pre-exist), `env` (DO binding +
     literals). No `assets` (Relay is API-only; Core's `runWorkerFirst:true`
     is a Core concern, not set here).
+  - `WorkerBundle.build` (`@alchemy.run/cloudflare/Workers/Sources/Rolldown`,
+    via the package `./*` wildcard) needs only Effect FileSystem+Path
+    (`@effect/platform-node` `NodeFileSystem`/`NodePath` layers) and returns
+    in-memory `{ files, hash }` — invocable offline with zero cloud calls.
+    `npm run bundle:check` uses it (the deploy-exact Cloudflare rolldown
+    plugin set) and asserts by IMPORTING the built entry: `default.fetch`
+    plus `MachineRoom` prototype handlers
+    (`fetch`/`webSocketMessage`/`webSocketClose`/`webSocketError`/`alarm`).
+    For `bundle: false` Workers the deploy-exact collector is instead
+    `readPrebuiltWorkerBundle` (`Workers/Sources/Prebuilt`) — not used here
+    since Relay bundles from source.
+  - Origin validation rejects wildcards (`*`/`%2A` — `new URL` parses them,
+    so the check is explicit) and rejects identical Core/Relay origins (two
+    custom-domain Workers cannot own one host).
   - CLI (`alchemy/bin/cli.js`) runs under Bun when present, else Node —
     requires Node 22.22.3 / 24.11.1+. This stack pins `engines.node >= 24`
     (aligned with Core infra + the actual host on Node v24.18); Bun is not
@@ -48,7 +62,7 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 
 1. Node >= 24 (24.11.1+; host runs 24.18; aligned with Core infra).
    Bun optional — the Alchemy CLI runs directly under Node, no Bun install needed.
-2. Cloudflare account + credentials via `alchemy profile edit --add Cloudflare`
+2. Cloudflare account + credentials via `npx --no-install alchemy profile edit --add Cloudflare`
    (OAuth or API token, interactive) or CI env (`CLOUDFLARE_ACCOUNT_ID` plus
    token). Deploy credentials live in the Alchemy profile, never in the repo.
 3. The relay zone already exists in the account (the `domain` hostname's zone
@@ -62,24 +76,43 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 |---|---|---|
 | `npm ci` (in `infra/`) | reproducible install from `package-lock.json` | no (npm registry only) |
 | `npm run typecheck` | `tsc --noEmit` on infra only | no |
-| `npm test` | vitest: origin/derivation/stage/domain + binding/parity | no |
-| `npm run bundle:check` | esbuild-bundles `../src/index.ts` to temp, asserts `MachineRoom` + `fetch` + hibernation handlers intact | no |
+| `npm test` | vitest: origin validation (exact-https, wildcards, Core/Relay distinctness), var derivation, domain | no |
+| `npm run bundle:check` | Alchemy `WorkerBundle` builds `../src/index.ts`, imports the entry, asserts `default.fetch` + `MachineRoom` hibernation handlers | no |
 | `npm run check` | typecheck + test + bundle:check (the full offline gate) | no |
-| `npm run plan` | `alchemy plan` (preview; see warning) | YES — see below |
-| `npm run deploy` | `alchemy deploy --stage <s> [--profile <p>]` | YES |
-| `npm run destroy` | `alchemy destroy --stage <s>` (that stage only) | YES |
+| `npm run plan -- --stage <s>` | `alchemy plan` (preview; see warning) | YES — see below |
+| `npm run deploy -- --stage <s> [--profile <p>] [--env-file <f>]` | `alchemy deploy` | YES |
+| `npm run destroy -- --stage <s>` | `alchemy destroy` (that stage only) | YES |
 | `npm run state:bootstrap` | `alchemy state bootstrap --backend cloudflare` (one-time) | YES |
 
+`npm run <script> -- <args>` forwards args to the local `alchemy` binary
+(`node_modules/.bin`, installed by `npm ci` — no global install). The only
+bare-`alchemy` form used here is `npx --no-install alchemy profile ...`
+(`--no-install` guarantees the local binary, never a download).
+
 Root conveniences (`relay/package.json`, deps untouched):
-`npm run infra:check`, `npm run infra:plan`, `npm run infra:deploy`
-(delegate with `npm --prefix infra`).
+`npm run infra:check`, `npm run infra:plan -- --stage <s>`,
+`npm run infra:deploy -- --stage <s>` (delegate with `npm --prefix infra`).
 
 ## Auth / bootstrap / safety (read before any cloud command)
 
 - Stages: `--stage prod` / `--stage staging` / `--stage pr-42`, or
   `$ALCHEMY_STAGE`. Never reuse a stage name across environments. Default
   `live_$USER` keeps personal sandboxes off shared stages. Destroy is
-  per-stage (`alchemy destroy --stage pr-42` touches only that stage).
+  per-stage (`npm run destroy -- --stage pr-42` touches only that stage).
+  Stage names are validated by the CLI (`[a-z0-9][-_a-z0-9]*`).
+- Preview stages MUST use stage-specific origins (never prod domains).
+  Isolated Worker names and DO state do NOT isolate the custom domain: the
+  `domain` hostname is single-owner, so deploying `--stage pr-42` with prod
+  `.env` would move the production domain/DNS/cert onto the preview Worker.
+  Keep a separate git-ignored env file per non-prod stage and select it with
+  `--env-file` (deploy default is `.env`):
+  ```sh
+  # .env.preview — this stage's OWN pair (never prod hosts)
+  AST_CORE_ORIGIN=https://core-pr-42.example.com
+  AST_RELAY_ORIGIN=https://relay-pr-42.example.com
+  npm run deploy -- --stage pr-42 --env-file .env.preview
+  ```
+  The stack additionally refuses identical Core/Relay origins outright.
 - State: default `Cloudflare.state()` (account Worker
   `alchemy-state-store`). Core uses the same backend with a DIFFERENT stack
   name — isolation is (stack, stage). Do NOT pass a custom `name` here.
@@ -117,9 +150,10 @@ Root conveniences (`relay/package.json`, deps untouched):
 cd infra
 npm ci
 npm run check            # offline gate, must be green
-cp .env.example .env     # fill in the two real https origins
-alchemy profile edit --add Cloudflare   # once per machine/profile
+cp .env.example .env     # fill in the two real https origins (prod pair)
+npx --no-install alchemy profile edit --add Cloudflare   # once per machine/profile
 npm run state:bootstrap  # once per account (or rely on CI failure signal)
-alchemy deploy --stage prod --profile prod   # shared origins via .env
-alchemy deploy --stage pr-42                 # preview: isolated script+DOs
+npm run deploy -- --stage prod --profile prod   # origins via .env
 ```
+Previews: separate origins + `--env-file` (see "Preview stages" above) —
+never deploy a non-prod stage against the prod `.env`.

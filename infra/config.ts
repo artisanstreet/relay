@@ -49,6 +49,11 @@ export function parseHttpsOrigin(raw: string, varName: string): string {
   if (url.protocol !== "https:") {
     throw new Error(`${varName} must be https (no http, no wildcards)`);
   }
+  // URL parses wildcards (`https://*.example.com`, `%2A` normalizes to `*`):
+  // reject explicitly — origins here become single-owner custom domains.
+  if (url.hostname.includes("*")) {
+    throw new Error(`${varName} must be exact (no wildcards)`);
+  }
   if (url.username || url.password) {
     throw new Error(`${varName} must not contain userinfo`);
   }
@@ -86,7 +91,25 @@ export function deriveRelayVars(coreOrigin: string): RelayVars {
   };
 }
 
-/** Alchemy stage names must match `[a-z0-9][-_a-z0-9]*`. */
-export function isValidStage(name: string): boolean {
-  return /^[a-z0-9][-_a-z0-9]*$/.test(name);
+export interface DeployOrigins {
+  coreOrigin: string;
+  relayOrigin: string;
+}
+
+/**
+ * Validate BOTH deploy origins together. Rejects identical origins: Core and
+ * Relay are separate custom-domain Workers and two Workers cannot own the
+ * same host (a preview stage reusing prod domains would fight production for
+ * its custom domain despite isolated Worker names and DO state).
+ */
+export function parseDeployOrigins(coreRaw: string, relayRaw: string): DeployOrigins {
+  const coreOrigin = parseHttpsOrigin(coreRaw, CORE_ORIGIN_VAR);
+  const relayOrigin = parseHttpsOrigin(relayRaw, RELAY_ORIGIN_VAR);
+  if (coreOrigin === relayOrigin) {
+    throw new Error(
+      `${RELAY_ORIGIN_VAR} must differ from ${CORE_ORIGIN_VAR} ` +
+        `(two custom-domain Workers cannot own the same host)`,
+    );
+  }
+  return { coreOrigin, relayOrigin };
 }

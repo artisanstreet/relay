@@ -9,7 +9,7 @@
     "check": "npm run typecheck && npm run test && npm run bundle:check",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "bundle:check": "node scripts/check-bundle.mjs",
+    "bundle:check": "node scripts/check-bundle.ts",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
@@ -23,7 +23,6 @@
   },
   "devDependencies": {
     "@types/node": "26.6.5",
-    "esbuild": "0.28.2",
     "typescript": "7.1.0-beta",
     "vitest": "5.0.5"
   },
