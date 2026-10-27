@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "@effect/platform";
 import { GrantAuthority, GrantVerifier, GrantVerifierLive } from "../../src/services/grants/verifier.ts";
 import type { GrantAuthorityConfig } from "../../src/services/grants/verifier.ts";
-import { mintGrant, testCoreKey, TEST_AUD, TEST_ISS, TEST_KID } from "../helpers.ts";
+import { mint_grant, test_core_key, TEST_AUD, TEST_ISS, TEST_KID } from "../helpers.ts";
 
 function fetch_layer(jwks_body: unknown, status = 200) {
   return Layer.succeed(
@@ -35,8 +35,8 @@ function live(jwks_body: unknown, status = 200) {
 
 describe("grant verifier (Effect adapter over vetted jose)", () => {
   it("verifies a valid grant via HttpClient JWKS transport", async () => {
-    const core = testCoreKey();
-    const g = await mintGrant(core, { role: "client" });
+    const core = test_core_key();
+    const g = await mint_grant(core, { role: "client" });
     const jwks = {
       keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID, alg: "EdDSA", use: "sig" }],
     };
@@ -51,8 +51,8 @@ describe("grant verifier (Effect adapter over vetted jose)", () => {
   });
 
   it("rejects unknown kid with typed failure (jose refetch preserved)", async () => {
-    const core = testCoreKey();
-    const g = await mintGrant(core, { role: "client", kid: "unknown-kid" });
+    const core = test_core_key();
+    const g = await mint_grant(core, { role: "client", kid: "unknown-kid" });
     const jwks = {
       keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID, alg: "EdDSA", use: "sig" }],
     };
@@ -65,9 +65,9 @@ describe("grant verifier (Effect adapter over vetted jose)", () => {
   });
 
   it("rejects over-TTL grants without leaking cause to caller", async () => {
-    const core = testCoreKey();
+    const core = test_core_key();
     const iat = Math.floor(Date.now() / 1000);
-    const g = await mintGrant(core, { role: "client", iat, exp: iat + 9999 });
+    const g = await mint_grant(core, { role: "client", iat, exp: iat + 9999 });
     const jwks = {
       keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID, alg: "EdDSA", use: "sig" }],
     };

@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import Noise from "noise-handshake";
 import Cipher from "noise-handshake/cipher";
 import dh from "noise-handshake/dh";
-import { prologueBytes } from "../src/channel.ts";
+import { prologue_bytes } from "../src/channel.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PEER_DIR = join(root, "interop", "snow-peer");
@@ -64,7 +64,7 @@ describe.runIf(cargoAvailable())("live snow interop", () => {
     // Fixed static keys (both sides load the same raw keys).
     const initKp = dh.generateKeyPair();
     const respKp = dh.generateKeyPair();
-    const prologue = prologueBytes(CTX);
+    const prologue = prologue_bytes(CTX);
     const peer = startPeer(hex(respKp.secretKey), hex(prologue));
     try {
       const init = new Noise("XX", true, { publicKey: initKp.publicKey, secretKey: initKp.secretKey });
@@ -102,7 +102,7 @@ describe.runIf(cargoAvailable())("live snow interop", () => {
     execFileSync("cargo", ["build", "--offline"], { cwd: PEER_DIR, stdio: "ignore" });
     const initKp = dh.generateKeyPair();
     const respKp = dh.generateKeyPair();
-    const prologue = prologueBytes(CTX);
+    const prologue = prologue_bytes(CTX);
     const peer = startPeer(hex(respKp.secretKey), hex(prologue));
     try {
       const init = new Noise("XX", true, { publicKey: initKp.publicKey, secretKey: initKp.secretKey });

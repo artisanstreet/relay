@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { RelayEnv, room_id } from "../config/relay.ts";
-import { wsOriginGate } from "../cors.ts";
+import { ws_origin_gate } from "../cors.ts";
 
 const id_re = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
 
@@ -30,7 +30,7 @@ export const handle_route_upgrade = (
       return json_response({ error: "websocket required" }, 426);
     }
     const cfg = yield* RelayEnv;
-    const gate = wsOriginGate(req, cfg.portal_origin);
+    const gate = ws_origin_gate(req, cfg.portal_origin);
     if (gate) return gate;
     const stub = cfg.raw_env.MACHINE_ROOM.get(room_id(cfg.raw_env.MACHINE_ROOM, account, machine));
     return yield* Effect.matchEffect(

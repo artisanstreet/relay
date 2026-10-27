@@ -22,13 +22,14 @@ import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { randomBytes } from "@noble/hashes/utils.js";
-import { setupRig, api } from "../../../core/tests/helpers/http.ts";
+import { bytesToHex as bytes_to_hex } from "@noble/hashes/utils.js";
+import { randomBytes as random_bytes } from "@noble/hashes/utils.js";
+import { setup_rig, api } from "../../../core/tests/helpers/http.ts";
 import type { TestRig } from "../../../core/tests/helpers/http.ts";
 import { EditorLink, SecureChannel } from "../../src/client.ts";
 import type { GrantMaterial } from "../../src/client.ts";
-import { staticKeypairFromSecret } from "../../src/channel.ts";
-import { b64uEncode } from "../../src/b64u.ts";
+import { static_keypair_from_secret } from "../../src/channel.ts";
+import { b64u_encode } from "../../src/b64u.ts";
 
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -42,17 +43,17 @@ const NATIVE_SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "native-smoke");
 const CHUNK_RAW = 40 * 1024;
 
 function b64u(b: Uint8Array): string {
-  return b64uEncode(b);
+  return b64u_encode(b);
 }
 function sha256Hex(data: Uint8Array | string): string {
   const b = typeof data === "string" ? te.encode(data) : data;
-  return [...sha256(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return bytes_to_hex(sha256(b));
 }
 async function machineHeaders(
   subjectId: string, sk: Uint8Array, method: string, pathAndQuery: string, rawBody: string,
 ): Promise<Record<string, string>> {
   const ts = String(Math.floor(Date.now() / 1000));
-  const nonce = b64u(randomBytes(16));
+  const nonce = b64u(random_bytes(16));
   const canonical = `${ts}\n${nonce}\n${method}\n${pathAndQuery}\n${sha256Hex(rawBody)}`;
   return {
     "x-ast-machine": subjectId,
@@ -80,8 +81,8 @@ function requireFields(obj: unknown, required: string[], what: string): Record<s
   }
   return o;
 }
-async function waitFor(cond: () => boolean, label: string, timeoutMs = 120_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+async function wait_for(cond: () => boolean, label: string, timeout_ms = 120_000): Promise<void> {
+  const deadline = Date.now() + timeout_ms;
   for (;;) {
     if (cond()) return;
     if (Date.now() > deadline) throw new Error(`timeout: ${label}`);
@@ -107,11 +108,11 @@ const forgeLog: string[] = [];
 const forgeOut: string[] = [];
 
 beforeAll(async () => {
-  rig = await setupRig();
+  rig = await setup_rig();
   const q1 = await api(rig.app, "POST", "/v1/auth/magic/request", { body: { email: "rinterop@example.invalid" } });
   if (q1.status !== 200) throw new Error(`request failed: ${q1.text}`);
   const { requestId, requestSecret } = q1.json as { requestId: string; requestSecret: string };
-  const token = rig.tokenForEmail("rinterop@example.invalid");
+  const token = rig.token_for_email("rinterop@example.invalid");
   const q2 = await api(rig.app, "POST", "/v1/auth/magic/consume", { body: { token } });
   if (q2.status !== 200) throw new Error(`consume failed: ${q2.text}`);
   const q3 = await api(rig.app, "POST", "/v1/auth/magic/finalize", { body: { requestId, requestSecret } });
@@ -359,38 +360,38 @@ describe("production rust seam (serve_account_relay)", () => {
     });
     console.log(`nonsense-room presence status (expect 403): ${probe.status}`);
 
-    const editorMat: GrantMaterial = { jwt: editorGrantJwt, jti: editorJti, cnfSk: editorSk };
+    const editor_mat: GrantMaterial = { jwt: editorGrantJwt, jti: editorJti, cnf_sk: editorSk };
     const editorClosed: number[] = [];
     const editorErrors: { code: string; message: string }[] = [];
     const editorOpened: string[] = [];
-    const editorInbox: { channel: string; body: Uint8Array }[] = [];
-    const editorLink = new EditorLink(
+    const editor_inbox: { channel: string; body: Uint8Array }[] = [];
+    const editor_link = new EditorLink(
       `${base.replace("http", "ws")}/v1/route/${accountId}/${machineId}`,
-      editorMat,
+      editor_mat,
       {
-        onData: (channel, _s, body) => editorInbox.push({ channel, body }),
-        onClose: (code) => editorClosed.push(code),
-        onError: (code, message) => editorErrors.push({ code, message }),
-        onChannelOpened: (channel) => editorOpened.push(channel),
+        on_data: (channel, _s, body) => editor_inbox.push({ channel, body }),
+        on_close: (code) => editorClosed.push(code),
+        on_error: (code, message) => editorErrors.push({ code, message }),
+        on_channel_opened: (channel) => editorOpened.push(channel),
       },
       WebSocket,
     );
-    expect((await editorLink.connect()).role).toBe("client");
+    expect((await editor_link.connect()).role).toBe("client");
 
     // Editor's view of the Forge enrolled key (authenticated Core record).
     const ml = await api(rig.app, "GET", "/v1/machines", { headers: { cookie: sessionCookie, origin: "http://localhost" } });
     expect(ml.status).toBe(200);
     const listed = (ml.json as { machines?: { id: string; label?: string; publicKey: { x: string } }[] }).machines ?? [];
-    const forgeCnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machineId)?.publicKey.x ?? "") as string, "base64url"));
-    expect(forgeCnf.length).toBe(32);
+    const forge_cnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machineId)?.publicKey.x ?? "") as string, "base64url"));
+    expect(forge_cnf.length).toBe(32);
 
     const uniCtx = { account: accountId, machine: machineId, channel: "r-unary" };
     const streamCtx = { account: accountId, machine: machineId, channel: "r-stream" };
-    const editorUni = SecureChannel.initiate(staticKeypairFromSecret(randomBytes(32)), {
-      cnfSignKey: editorSk, expectedForgeCnf: forgeCnf, ownGrantJwt: editorGrantJwt, ctx: uniCtx,
+    const editorUni = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+      cnf_sign_key: editorSk, expected_forge_cnf: forge_cnf, own_grant_jwt: editorGrantJwt, ctx: uniCtx,
     });
-    const editorStream = SecureChannel.initiate(staticKeypairFromSecret(randomBytes(32)), {
-      cnfSignKey: editorSk, expectedForgeCnf: forgeCnf, ownGrantJwt: editorGrantJwt, ctx: streamCtx,
+    const editorStream = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+      cnf_sign_key: editorSk, expected_forge_cnf: forge_cnf, own_grant_jwt: editorGrantJwt, ctx: streamCtx,
     });
 
     type End = { ch: SecureChannel; channel: string };
@@ -402,20 +403,20 @@ describe("production rust seam (serve_account_relay)", () => {
     for (const e of ends) arrived.set(e, []);
     const settle = async (): Promise<void> => {
       for (const e of ends) {
-        for (const body of e.ch.pumpOutbound()) editorLink.sendOpaque(e.channel, body);
+        for (const body of e.ch.pump_outbound()) editor_link.send_opaque(e.channel, body);
       }
       await new Promise((r) => setTimeout(r, 10));
       for (const e of ends) {
         const rest: { channel: string; body: Uint8Array }[] = [];
-        for (const item of editorInbox.splice(0, editorInbox.length)) {
+        for (const item of editor_inbox.splice(0, editor_inbox.length)) {
           if (item.channel !== e.channel) {
             rest.push(item);
             continue;
           }
-          const r = e.ch.handleIncoming(item.body);
+          const r = e.ch.handle_incoming(item.body);
           if (r) (arrived.get(e) as Uint8Array[]).push(r);
         }
-        editorInbox.push(...rest);
+        editor_inbox.push(...rest);
       }
     };
     const collectFrom = async (e: End, want: number): Promise<Uint8Array[]> => {
@@ -425,24 +426,24 @@ describe("production rust seam (serve_account_relay)", () => {
       return got.splice(0, got.length);
     };
 
-    editorLink.open("r-unary");
-    editorLink.open("r-stream");
-    for (let i = 0; i < 120 && (!editorUni.isOpen() || !editorStream.isOpen()); i++) await settle();
-    if (!editorUni.isOpen() || !editorStream.isOpen()) {
-      const inboxDump = editorInbox.slice(0, 8).map((x) => `${x.channel}:${x.body.length}`).join(",");
+    editor_link.open("r-unary");
+    editor_link.open("r-stream");
+    for (let i = 0; i < 120 && (!editorUni.is_open() || !editorStream.is_open()); i++) await settle();
+    if (!editorUni.is_open() || !editorStream.is_open()) {
+      const inboxDump = editor_inbox.slice(0, 8).map((x) => `${x.channel}:${x.body.length}`).join(",");
       throw new Error(
-        `noise stall: uni=${editorUni.noise.getPhase()} stream=${editorStream.noise.getPhase()} inbox=[${inboxDump}] ` +
+        `noise stall: uni=${editorUni.noise.get_phase()} stream=${editorStream.noise.get_phase()} inbox=[${inboxDump}] ` +
           `opened=[${editorOpened.join(",")}] errors=${JSON.stringify(editorErrors)} closed=${JSON.stringify(editorClosed)}\n` +
           `forge stdout:\n${forgeOut.slice(-20).join("\n")}\nstderr:\n${forgeLog.slice(-20).join("\n")}`,
       );
     }
-    expect(editorUni.isOpen(), "unary open").toBe(true);
-    expect(editorStream.isOpen(), "stream open").toBe(true);
+    expect(editorUni.is_open(), "unary open").toBe(true);
+    expect(editorStream.is_open(), "stream open").toBe(true);
 
     // -- unary GET /state from the REAL Store (fresh dir: valid empty shape)
     // Responses are tolerant: required fields asserted, additive State
     // fields (threads_next/waiting/account/...) allowed.
-    editorUni.queueApp(JSON.stringify({ id: "r1", method: "GET", path: "/state" }));
+    editorUni.queue_app(JSON.stringify({ id: "r1", method: "GET", path: "/state" }));
     const sresp = await collectFrom(ends[0] as End, 1);
     const state = requireFields(JSON.parse(td.decode(sresp[0] as Uint8Array)), ["id", "status", "body"], "TunnelResponse");
     expect(state["id"]).toBe("r1");
@@ -459,7 +460,7 @@ describe("production rust seam (serve_account_relay)", () => {
     // -- SUBSCRIBE: real stream open, Hello first, then UNSUBSCRIBE ---------
     // Stream stays open across the 2 MiB draft roundtrip below (concurrent
     // stream + unary); UNSUBSCRIBE happens after the draft assertions.
-    editorStream.queueApp(JSON.stringify({ id: "rs1", method: "SUBSCRIBE", path: "/events?since=0" }));
+    editorStream.queue_app(JSON.stringify({ id: "rs1", method: "SUBSCRIBE", path: "/events?since=0" }));
     const sevents = await collectFrom(ends[1] as End, 2);
     const sack = requireFields(JSON.parse(td.decode(sevents[0] as Uint8Array)), ["id", "status", "body"], "StreamAck");
     const streamId = ((sack["body"] as Record<string, unknown>)["$stream"] as Record<string, string>)["stream"] as string;
@@ -477,7 +478,7 @@ describe("production rust seam (serve_account_relay)", () => {
     // the event stream stays open (concurrent stream + unary). Raw
     // application/octet-stream blob PUTs are an invalid route and stay
     // rejected by Forge WebP validation; this test does not weaken that.
-    expect(editorStream.isOpen(), "stream still open for concurrent draft").toBe(true);
+    expect(editorStream.is_open(), "stream still open for concurrent draft").toBe(true);
     const bigText = "0123456789ABCDEF".repeat(131072);
     expect(bigText.length).toBe(2 * 1024 * 1024);
     const putDraftReq = JSON.stringify({
@@ -490,7 +491,7 @@ describe("production rust seam (serve_account_relay)", () => {
     expect(putDraftFrames.length).toBeGreaterThan(50);
     for (const c of putDraftFrames) {
       const { ct } = editorUni.noise.seal(te.encode(c));
-      await editorLink.sendAcked("r-unary", ct, { timeoutMs: 60_000 });
+      await editor_link.send_acked("r-unary", ct, { timeout_ms: 60_000 });
     }
     const putDraftResp = await collectTunnelResponse(ends[0] as End, "rdraft1", settle, arrived, td);
     expect(putDraftResp["status"]).toBe(200);
@@ -500,7 +501,7 @@ describe("production rust seam (serve_account_relay)", () => {
     expect((putCurrent["body"] as Record<string, unknown>)["text"]).toBe(bigText);
 
     // GET the same draft back (chunked download, reassembled TunnelChunks).
-    editorUni.queueApp(JSON.stringify({ id: "rdraft2", method: "GET", path: "/drafts/smoke" }));
+    editorUni.queue_app(JSON.stringify({ id: "rdraft2", method: "GET", path: "/drafts/smoke" }));
     const getDraftResp = await collectTunnelResponse(ends[0] as End, "rdraft2", settle, arrived, td);
     expect(getDraftResp["status"]).toBe(200);
     const getDraftBody = requireFields(getDraftResp["body"] as Record<string, unknown>, ["revision", "body"], "DraftSnapshot");
@@ -510,7 +511,7 @@ describe("production rust seam (serve_account_relay)", () => {
     // Demultiplex by id: live $events may still be queued ahead of the
     // rs2 response on the stream channel; drain them, don't assume the
     // first inbound frame is the response.
-    editorStream.queueApp(JSON.stringify({ id: "rs2", method: "UNSUBSCRIBE", path: `/events/${streamId}` }));
+    editorStream.queue_app(JSON.stringify({ id: "rs2", method: "UNSUBSCRIBE", path: `/events/${streamId}` }));
     const sunsubResp = await collectStreamResponse(ends[1] as End, "rs2", settle, arrived, td);
     expect(sunsubResp["id"]).toBe("rs2");
 
@@ -537,7 +538,7 @@ describe("production rust seam (serve_account_relay)", () => {
       relay_base_url: base,
       account_id: accountId,
       machine_id: machineId,
-      forge_ed25519_b64u: b64u(forgeCnf),
+      forge_ed25519_b64u: b64u(forge_cnf),
       grant_jwt: nativeJwt,
       cnf_secret_hex: Buffer.from(nativeSk).toString("hex"),
       core_base_url: coreBaseUrl,
@@ -561,7 +562,7 @@ describe("production rust seam (serve_account_relay)", () => {
       headers: { cookie: sessionCookie, origin: "http://localhost" },
     });
     expect(rev.status).toBe(200);
-    await waitFor(() => editorClosed.some((c) => c === 4002), "revocation sweep", 60_000);
+    await wait_for(() => editorClosed.some((c) => c === 4002), "revocation sweep", 60_000);
   }, 300_000);
 });
 

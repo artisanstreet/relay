@@ -13,14 +13,14 @@ import { Schema } from "effect";
 /** Protocol/contract major version. A bump is required for new fields. */
 export const ProtocolV = Schema.Literal(1);
 
-const idCharset = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
-const channelCharset = /^[A-Za-z0-9][A-Za-z0-9._~:-]{0,63}$/;
+const id_charset = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
+const channel_charset = /^[A-Za-z0-9][A-Za-z0-9._~:-]{0,63}$/;
 
-export const AccountId = Schema.String.pipe(Schema.pattern(idCharset));
+export const AccountId = Schema.String.pipe(Schema.pattern(id_charset));
 export type AccountId = typeof AccountId.Type;
-export const MachineId = Schema.String.pipe(Schema.pattern(idCharset));
+export const MachineId = Schema.String.pipe(Schema.pattern(id_charset));
 export type MachineId = typeof MachineId.Type;
-export const ChannelId = Schema.String.pipe(Schema.pattern(channelCharset));
+export const ChannelId = Schema.String.pipe(Schema.pattern(channel_charset));
 export type ChannelId = typeof ChannelId.Type;
 export const JwtCompact = Schema.String.pipe(
   Schema.minLength(16),
@@ -228,21 +228,21 @@ export type ServerFrame = typeof ServerFrame.Type;
 // Strict decode helpers (requests) / tolerant encode (responses).
 // ---------------------------------------------------------------------------
 
-const strictOptions = { onExcessProperty: "error" } as const;
+const strict_options = { onExcessProperty: "error" } as const;
 
-export function decodeClientFrame(u: unknown): ClientFrame {
-  return Schema.decodeUnknownSync(ClientFrame, strictOptions)(u);
+export function decode_client_frame(u: unknown): ClientFrame {
+  return Schema.decodeUnknownSync(ClientFrame, strict_options)(u);
 }
 
-export function decodeGrantClaims(u: unknown): GrantClaims {
-  return Schema.decodeUnknownSync(GrantClaims, strictOptions)(u);
+export function decode_grant_claims(u: unknown): GrantClaims {
+  return Schema.decodeUnknownSync(GrantClaims, strict_options)(u);
 }
 
 /** Forward-compatible read of server frames (ignores unknown fields). */
-export function readServerFrame(u: unknown): ServerFrame {
+export function read_server_frame(u: unknown): ServerFrame {
   return Schema.decodeUnknownSync(ServerFrame)(u);
 }
 
-export function encodeServerFrame(f: ServerFrame): string {
+export function encode_server_frame(f: ServerFrame): string {
   return JSON.stringify(Schema.encodeSync(ServerFrame)(f));
 }

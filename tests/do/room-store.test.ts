@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Effect, Exit } from "effect";
 import { make_room_store } from "../../src/do/room-store.ts";
 import { RoomState } from "../../src/room/state.ts";
-import { mintGrant, testCoreKey, testVerifier } from "../helpers.ts";
-import { popSign } from "../../src/e2e.ts";
-import { b64uEncode } from "../../src/b64u.ts";
+import { mint_grant, test_core_key, test_verifier } from "../helpers.ts";
+import { pop_sign } from "../../src/e2e.ts";
+import { b64u_encode } from "../../src/b64u.ts";
 import type { RoomSnapshot } from "../../src/room/state.ts";
 
 function fake_do_storage() {
@@ -33,22 +33,22 @@ function fake_do_state(storage: ReturnType<typeof fake_do_storage>): DurableObje
   return { storage } as unknown as DurableObjectState;
 }
 
-async function admitted_snapshot(): Promise<{ snap: RoomSnapshot; core: ReturnType<typeof testCoreKey> }> {
-  const core = testCoreKey();
-  const verify = testVerifier(core);
+async function admitted_snapshot(): Promise<{ snap: RoomSnapshot; core: ReturnType<typeof test_core_key> }> {
+  const core = test_core_key();
+  const verify = test_verifier(core);
   const room = new RoomState("acct1", "forge1", verify, () => Date.now());
-  const g = await mintGrant(core, { role: "forge" });
+  const g = await mint_grant(core, { role: "forge" });
   const sent: string[] = [];
   const sock = { send: (d: string) => void sent.push(d), close: () => {} };
-  room.onConnect("f", sock);
-  await room.onMessage("f", JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
+  room.on_connect("f", sock);
+  await room.on_message("f", JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
   const ch = JSON.parse(sent[0] as string) as { nonce: string };
   const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
-  await room.onMessage(
+  await room.on_message(
     "f",
-    JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) }),
+    JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) }),
   );
-  room.clearDirty();
+  room.clear_dirty();
   return { snap: room.snapshot(), core };
 }
 
@@ -58,9 +58,9 @@ describe("room store (Effect orchestration, fail-closed storage)", () => {
     storage.delay_ms = 20;
     const { snap } = await admitted_snapshot();
     storage.data.set("relay:room:v1", snap);
-    const core = testCoreKey();
+    const core = test_core_key();
     const store = await Effect.runPromise(
-      make_room_store(fake_do_state(storage), testVerifier(core), () => Date.now()),
+      make_room_store(fake_do_state(storage), test_verifier(core), () => Date.now()),
     );
     const results = await Effect.runPromise(
       Effect.all(
@@ -76,15 +76,15 @@ describe("room store (Effect orchestration, fail-closed storage)", () => {
     const storage = fake_do_storage();
     const { snap } = await admitted_snapshot();
     storage.data.set("relay:room:v1", snap);
-    const core = testCoreKey();
+    const core = test_core_key();
     const store = await Effect.runPromise(
-      make_room_store(fake_do_state(storage), testVerifier(core), () => Date.now()),
+      make_room_store(fake_do_state(storage), test_verifier(core), () => Date.now()),
     );
     const live_sock = { send: (_d: string) => {}, close: (_c?: number, _r?: string) => {} };
     await Effect.runPromise(store.ensure_loaded((id) => (id === "f" ? live_sock : null)));
     const room = await Effect.runPromise(store.get_room());
     if (!room) throw new Error("expected room");
-    room.markDirty();
+    room.mark_dirty();
     storage.fail_put = true;
     const exit = await Effect.runPromise(Effect.exit(store.flush()));
     expect(Exit.isFailure(exit)).toBe(true);
@@ -92,10 +92,10 @@ describe("room store (Effect orchestration, fail-closed storage)", () => {
       const err = exit.cause as unknown as { _tag: string };
       void err;
     }
-    expect(room.isDirty()).toBe(true);
+    expect(room.is_dirty()).toBe(true);
     storage.fail_put = false;
     await Effect.runPromise(store.flush());
-    expect(room.isDirty()).toBe(false);
+    expect(room.is_dirty()).toBe(false);
     expect((storage.data.get("relay:room:v1") as RoomSnapshot).conns.length).toBe(1);
   });
 
@@ -103,9 +103,9 @@ describe("room store (Effect orchestration, fail-closed storage)", () => {
     const storage = fake_do_storage();
     const { snap } = await admitted_snapshot();
     storage.data.set("relay:room:v1", snap);
-    const core = testCoreKey();
+    const core = test_core_key();
     const store = await Effect.runPromise(
-      make_room_store(fake_do_state(storage), testVerifier(core), () => Date.now()),
+      make_room_store(fake_do_state(storage), test_verifier(core), () => Date.now()),
     );
     storage.fail_get = true;
     const first = await Effect.runPromise(Effect.exit(store.ensure_loaded(() => null)));

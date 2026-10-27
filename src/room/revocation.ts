@@ -1,5 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { b64uEncode } from "../b64u.ts";
+import { bytesToHex as bytes_to_hex } from "@noble/hashes/utils.js";
+import { base64urlnopad as base64url_nopad } from "@scure/base";
+import { b64u_encode } from "../b64u.ts";
 import type { VerifiedGrant } from "../services/grants/verifier.ts";
 
 const KNOWN_SCOPES = new Set(["relay:connect", "forge:execute", "machine:sync"]);
@@ -11,13 +13,9 @@ export function filter_known_scopes(scope: unknown): string[] {
 
 function key_forms(kid: string, cnf_pk: Uint8Array): string[] {
   const digest = sha256(cnf_pk);
-  const hex_fpr = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
-  let s = "";
-  for (let i = 0; i < digest.length; i += 8192) {
-    s += String.fromCharCode(...digest.subarray(i, i + 8192));
-  }
-  const b64_fpr = btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return [kid, b64uEncode(cnf_pk), hex_fpr, b64_fpr];
+  const hex_fpr = bytes_to_hex(digest);
+  const b64_fpr = base64url_nopad.encode(digest);
+  return [kid, b64u_encode(cnf_pk), hex_fpr, b64_fpr];
 }
 
 export function matches_revoked_keys(
@@ -34,5 +32,5 @@ export function is_revoked(
   revoked_keys: Set<string>,
 ): boolean {
   if (revoked_machines.has(grant.claims.mid)) return true;
-  return matches_revoked_keys(grant.kid, grant.cnfPk, revoked_keys);
+  return matches_revoked_keys(grant.kid, grant.cnf_pk, revoked_keys);
 }

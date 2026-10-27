@@ -9,14 +9,14 @@ export type VerifyGrant = (jwt: string, now_sec?: number) => Promise<VerifiedGra
 export type NowMs = () => number;
 
 export interface RoomEvents {
-  onForgePresence?: (online: boolean) => void;
+  on_forge_presence?: (online: boolean) => void;
 }
 
 export interface AckWindow {
-  sentHigh: number;
-  ackedHigh: number;
+  sent_high: number;
+  acked_high: number;
   sizes: number[];
-  unackedBytes: number;
+  unacked_bytes: number;
 }
 
 export interface SnapshotConn {
@@ -34,8 +34,8 @@ export interface SnapshotChannel {
   owner: string;
   lastClientSeq: number;
   lastForgeSeq: number;
-  toForge: AckWindow;
-  toClient: AckWindow;
+  toForge: { sentHigh: number; ackedHigh: number; sizes: number[]; unackedBytes: number };
+  toClient: { sentHigh: number; ackedHigh: number; sizes: number[]; unackedBytes: number };
 }
 
 export interface RoomSnapshot {
@@ -57,25 +57,25 @@ export interface PendingConn {
 export interface Challenge {
   nonce: Uint8Array;
   jti: string;
-  cnfPk: Uint8Array;
+  cnf_pk: Uint8Array;
   grant: VerifiedGrant;
-  expiresAt: number;
+  expires_at: number;
 }
 
 export interface AuthedConn {
   socket: RoomSocket;
   grant: VerifiedGrant;
-  expSec: number;
-  lastPong: number;
-  lastPingSent: number;
+  exp_sec: number;
+  last_pong: number;
+  last_ping_sent: number;
 }
 
 export interface ChannelState {
   owner: string;
-  lastClientSeq: number;
-  lastForgeSeq: number;
-  toForge: AckWindow;
-  toClient: AckWindow;
+  last_client_seq: number;
+  last_forge_seq: number;
+  to_forge: AckWindow;
+  to_client: AckWindow;
 }
 
 export interface RoomCore {
@@ -84,7 +84,7 @@ export interface RoomCore {
   verify: VerifyGrant;
   now: NowMs;
   events: RoomEvents;
-  forge: (AuthedConn & { connId: string }) | null;
+  forge: (AuthedConn & { conn_id: string }) | null;
   clients: Map<string, AuthedConn>;
   pending: Map<string, PendingConn>;
   challenges: Map<string, Challenge>;

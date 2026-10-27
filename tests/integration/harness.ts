@@ -21,8 +21,10 @@ import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { randomBytes } from "@noble/hashes/utils.js";
-import { setupRig, api } from "../../../core/tests/helpers/http.ts";
+import { bytesToHex as bytes_to_hex } from "@noble/hashes/utils.js";
+import { randomBytes as random_bytes } from "@noble/hashes/utils.js";
+import { b64u_encode as b64u } from "../../src/b64u.ts";
+import { setup_rig, api } from "../../../core/tests/helpers/http.ts";
 import type { TestRig } from "../../../core/tests/helpers/http.ts";
 
 const te = new TextEncoder();
@@ -45,14 +47,8 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-function b64u(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode(...b.subarray(i, i + 8192));
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 function sha256Hex(data: string): string {
-  return [...sha256(te.encode(data))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return bytes_to_hex(sha256(te.encode(data)));
 }
 
 export interface BrowserHarness {
@@ -143,7 +139,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   const portalPort = (portal.address() as AddressInfo).port;
   const portalBase = `http://127.0.0.1:${portalPort}`;
 
-  const rig = await setupRig({
+  const rig = await setup_rig({
     vars: {
       CORE_PUBLIC_BASE_URL: portalBase,
       CORE_SPA_APPROVE_PATH: "/#/approve",
@@ -158,7 +154,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   const q1 = await api(rig.app, "POST", "/v1/auth/magic/request", { body: { email } });
   if (q1.status !== 200) throw new Error(`request failed: ${q1.text}`);
   const { requestId, requestSecret } = q1.json as { requestId: string; requestSecret: string };
-  const token = rig.tokenForEmail(email);
+  const token = rig.token_for_email(email);
   const q2 = await api(rig.app, "POST", "/v1/auth/magic/consume", { body: { token } });
   if (q2.status !== 200) throw new Error(`consume failed: ${q2.text}`);
   const q3 = await api(rig.app, "POST", "/v1/auth/magic/finalize", { body: { requestId, requestSecret } });
@@ -184,7 +180,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   const statusPath = `/v1/machines/enrollments/${enrollmentId}/status`;
   const machineHeaders = async (subjectId: string, method: string, pathAndQuery: string, rawBody: string) => {
     const t = String(Math.floor(Date.now() / 1000));
-    const nonce = b64u(randomBytes(16));
+    const nonce = b64u(random_bytes(16));
     const canonical = `${t}\n${nonce}\n${method}\n${pathAndQuery}\n${sha256Hex(rawBody)}`;
     return {
       "x-ast-machine": subjectId,
@@ -237,7 +233,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   const relayWsBase = relayBase.replace("http", "ws");
   // Core's CSP allowlist points at the real Relay origin (set once the
   // Miniflare URL is known; per-request reads pick it up).
-  rig.setVar("CORE_RELAY_ORIGIN", relayBase);
+  rig.set_var("CORE_RELAY_ORIGIN", relayBase);
 
   // Production Rust Forge binary (shared editor/target). Build fails LOUDLY.
   const pinnedToolchain = (() => {

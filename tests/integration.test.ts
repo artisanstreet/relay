@@ -9,11 +9,11 @@ import { RoomState } from "../src/room.ts";
 import type { RoomSocket } from "../src/room.ts";
 import { EditorLink, ForgeLink, SecureChannel } from "../src/client.ts";
 import type { GrantMaterial } from "../src/client.ts";
-import { staticKeypairFromSecret } from "../src/channel.ts";
-import { makeChannelJwtVerifier } from "../src/channel-verify.ts";
-import { newEd25519Keypair } from "../src/e2e.ts";
-import { randomBytes } from "@noble/hashes/utils.js";
-import { mintGrant, stubFetch, testCoreKey, testVerifier, TEST_AUD, TEST_ISS, TEST_JWKS_URL, TEST_KID } from "./helpers.ts";
+import { static_keypair_from_secret } from "../src/channel.ts";
+import { make_channel_jwt_verifier } from "../src/channel-verify.ts";
+import { new_ed25519_keypair } from "../src/e2e.ts";
+import { randomBytes as random_bytes } from "@noble/hashes/utils.js";
+import { mint_grant, stub_fetch, test_core_key, test_verifier, TEST_AUD, TEST_ISS, TEST_JWKS_URL, TEST_KID } from "./helpers.ts";
 
 class FakeWS {
   readyState = 0;
@@ -22,11 +22,11 @@ class FakeWS {
   onclose: (() => void) | null = null;
   private listeners = new Map<string, Set<(ev: unknown) => void>>();
   static rooms = new Map<string, RoomState>();
-  private connId: string;
+  private conn_id: string;
   closed = false;
 
   constructor(_url: string) {
-    this.connId = `conn-${Math.random().toString(36).slice(2)}`;
+    this.conn_id = `conn-${Math.random().toString(36).slice(2)}`;
     const room = FakeWS.rooms.get("acct1/forge1");
     if (!room) throw new Error("no room registered");
     const socket: RoomSocket = {
@@ -44,7 +44,7 @@ class FakeWS {
         });
       },
     };
-    room.onConnect(this.connId, socket);
+    room.on_connect(this.conn_id, socket);
     queueMicrotask(() => {
       this.readyState = 1;
       this.emit("open", {});
@@ -65,12 +65,12 @@ class FakeWS {
   send(data: string): void {
     const room = FakeWS.rooms.get("acct1/forge1");
     if (!room || this.closed) return;
-    void room.onMessage(this.connId, data);
+    void room.on_message(this.conn_id, data);
   }
   close(): void {
     const room = FakeWS.rooms.get("acct1/forge1");
     this.closed = true;
-    if (room) room.onClose(this.connId);
+    if (room) room.on_close(this.conn_id);
     queueMicrotask(() => {
       this.emit("close", {});
       this.onclose?.();
@@ -78,7 +78,7 @@ class FakeWS {
   }
 }
 
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
+async function wait_for(cond: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 8000;
   for (;;) {
     if (cond()) return;
@@ -89,92 +89,92 @@ async function waitFor(cond: () => boolean, label: string): Promise<void> {
 
 describe("end-to-end through the room", () => {
   it("forge + editor connect, open a secure channel, and exchange secrets the room cannot read", async () => {
-    const core = testCoreKey();
-    const room = new RoomState("acct1", "forge1", testVerifier(core), () => Date.now());
+    const core = test_core_key();
+    const room = new RoomState("acct1", "forge1", test_verifier(core), () => Date.now());
     FakeWS.rooms.set("acct1/forge1", room);
     try {
-      const forgeCnf = newEd25519Keypair(); // enrolled machine key (stable)
-      const editorCnf = newEd25519Keypair(); // ephemeral per-grant key
-      const forgeGrant = await mintGrant(core, {
-        role: "forge", scope: ["relay:connect", "forge:execute", "machine:sync"], cnfSk: forgeCnf.sk,
+      const forge_cnf = new_ed25519_keypair(); // enrolled machine key (stable)
+      const editor_cnf = new_ed25519_keypair(); // ephemeral per-grant key
+      const forgeGrant = await mint_grant(core, {
+        role: "forge", scope: ["relay:connect", "forge:execute", "machine:sync"], cnf_sk: forge_cnf.sk,
       });
-      const editorGrant = await mintGrant(core, { role: "client", scope: ["relay:connect", "forge:execute"], cnfSk: editorCnf.sk });
-      const forgeMat: GrantMaterial = { jwt: forgeGrant.jwt, jti: forgeGrant.jti, cnfSk: forgeCnf.sk };
-      const editorMat: GrantMaterial = { jwt: editorGrant.jwt, jti: editorGrant.jti, cnfSk: editorCnf.sk };
+      const editorGrant = await mint_grant(core, { role: "client", scope: ["relay:connect", "forge:execute"], cnf_sk: editor_cnf.sk });
+      const forge_mat: GrantMaterial = { jwt: forgeGrant.jwt, jti: forgeGrant.jti, cnf_sk: forge_cnf.sk };
+      const editor_mat: GrantMaterial = { jwt: editorGrant.jwt, jti: editorGrant.jti, cnf_sk: editor_cnf.sk };
 
-      const forgeInbox: Uint8Array[] = [];
-      const editorInbox: Uint8Array[] = [];
-      const forgeLink = new ForgeLink(
-        "ws://relay/v1/route/acct1/forge1", forgeMat,
-        { onData: (_ch, _seq, body) => forgeInbox.push(body) },
+      const forge_inbox: Uint8Array[] = [];
+      const editor_inbox: Uint8Array[] = [];
+      const forge_link = new ForgeLink(
+        "ws://relay/v1/route/acct1/forge1", forge_mat,
+        { on_data: (_ch, _seq, body) => forge_inbox.push(body) },
         FakeWS as unknown as typeof WebSocket,
       );
-      const editorLink = new EditorLink(
-        "ws://relay/v1/route/acct1/forge1", editorMat,
-        { onData: (_ch, _seq, body) => editorInbox.push(body) },
+      const editor_link = new EditorLink(
+        "ws://relay/v1/route/acct1/forge1", editor_mat,
+        { on_data: (_ch, _seq, body) => editor_inbox.push(body) },
         FakeWS as unknown as typeof WebSocket,
       );
-      expect((await forgeLink.connect()).role).toBe("forge");
-      expect((await editorLink.connect()).role).toBe("client");
+      expect((await forge_link.connect()).role).toBe("forge");
+      expect((await editor_link.connect()).role).toBe("client");
       expect(room.presence()).toEqual({ forge_online: true, clients: 1 });
 
       const CTX = { account: "acct1", machine: "forge1", channel: "exec-1" };
-      const verifyJwt = makeChannelJwtVerifier(
-        { jwksUrl: TEST_JWKS_URL, expectedIss: TEST_ISS, expectedAud: TEST_AUD, maxTtlSec: 300 },
-        stubFetch({ keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID }] }),
+      const verify_jwt = make_channel_jwt_verifier(
+        { jwks_url: TEST_JWKS_URL, expected_iss: TEST_ISS, expected_aud: TEST_AUD, max_ttl_sec: 300 },
+        stub_fetch({ keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID }] }),
       );
-      const editorCh = SecureChannel.initiate(staticKeypairFromSecret(randomBytes(32)), {
-        cnfSignKey: editorCnf.sk, expectedForgeCnf: forgeCnf.pk, ownGrantJwt: editorGrant.jwt, ctx: CTX,
+      const editorCh = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+        cnf_sign_key: editor_cnf.sk, expected_forge_cnf: forge_cnf.pk, own_grant_jwt: editorGrant.jwt, ctx: CTX,
       });
-      const forgeCh = SecureChannel.accept(staticKeypairFromSecret(randomBytes(32)), {
-        cnfSignKey: forgeCnf.sk, verifyChannelJwt: verifyJwt, ctx: CTX,
+      const forgeCh = SecureChannel.accept(static_keypair_from_secret(random_bytes(32)), {
+        cnf_sign_key: forge_cnf.sk, verify_channel_jwt: verify_jwt, ctx: CTX,
       });
 
-      const routedBodies: string[] = [];
-      const sendAll = async (
+      const routed_bodies: string[] = [];
+      const send_all = async (
         link: ForgeLink | EditorLink, ch: SecureChannel, inbox: Uint8Array[],
       ): Promise<(Uint8Array | null)[]> => {
-        for (const body of ch.pumpOutbound()) {
-          routedBodies.push(Buffer.from(body).toString("base64url"));
-          link.sendOpaque("exec-1", body);
+        for (const body of ch.pump_outbound()) {
+          routed_bodies.push(Buffer.from(body).toString("base64url"));
+          link.send_opaque("exec-1", body);
         }
         // Let FakeWS microtasks deliver through the room first.
         await new Promise((r) => setTimeout(r, 5));
         const results: (Uint8Array | null)[] = [];
-        for (const b of inbox.splice(0, inbox.length)) results.push(ch.handleIncoming(b));
+        for (const b of inbox.splice(0, inbox.length)) results.push(ch.handle_incoming(b));
         return results;
       };
 
-      editorLink.open("exec-1");
-      for (let i = 0; i < 30 && (!editorCh.isOpen() || !forgeCh.isOpen()); i++) {
-        await sendAll(editorLink, editorCh, editorInbox);
-        await sendAll(forgeLink, forgeCh, forgeInbox);
+      editor_link.open("exec-1");
+      for (let i = 0; i < 30 && (!editorCh.is_open() || !forgeCh.is_open()); i++) {
+        await send_all(editor_link, editorCh, editor_inbox);
+        await send_all(forge_link, forgeCh, forge_inbox);
       }
-      expect(editorCh.isOpen()).toBe(true);
-      expect(forgeCh.isOpen()).toBe(true);
-      expect(editorCh.noise.handshakeHashHex()).toBe(forgeCh.noise.handshakeHashHex());
+      expect(editorCh.is_open()).toBe(true);
+      expect(forgeCh.is_open()).toBe(true);
+      expect(editorCh.noise.handshake_hash_hex()).toBe(forgeCh.noise.handshake_hash_hex());
 
       const SECRET = "agent-transcript-bytes: run echo pwned";
-      editorCh.queueApp(SECRET);
-      await sendAll(editorLink, editorCh, editorInbox);
-      const atForge = (await sendAll(forgeLink, forgeCh, forgeInbox)).filter((r) => r !== null);
-      expect(atForge.length).toBe(1);
-      expect(new TextDecoder().decode(atForge[0] as Uint8Array)).toBe(SECRET);
+      editorCh.queue_app(SECRET);
+      await send_all(editor_link, editorCh, editor_inbox);
+      const at_forge = (await send_all(forge_link, forgeCh, forge_inbox)).filter((r) => r !== null);
+      expect(at_forge.length).toBe(1);
+      expect(new TextDecoder().decode(at_forge[0] as Uint8Array)).toBe(SECRET);
 
-      forgeCh.queueApp("result: exit 0");
-      await sendAll(forgeLink, forgeCh, forgeInbox);
-      const atEditor = (await sendAll(editorLink, editorCh, editorInbox)).filter((r) => r !== null);
-      expect(atEditor.length).toBe(1);
-      expect(new TextDecoder().decode(atEditor[0] as Uint8Array)).toBe("result: exit 0");
+      forgeCh.queue_app("result: exit 0");
+      await send_all(forge_link, forgeCh, forge_inbox);
+      const at_editor = (await send_all(editor_link, editorCh, editor_inbox)).filter((r) => r !== null);
+      expect(at_editor.length).toBe(1);
+      expect(new TextDecoder().decode(at_editor[0] as Uint8Array)).toBe("result: exit 0");
 
-      const roomSeesPlaintext = routedBodies.some((b) => {
+      const room_sees_plaintext = routed_bodies.some((b) => {
         const raw = Buffer.from(b, "base64url").toString("binary");
         return raw.includes(SECRET) || raw.includes("exit 0");
       });
-      expect(roomSeesPlaintext).toBe(false);
+      expect(room_sees_plaintext).toBe(false);
 
       // Revocation closes the live editor connection via the key list.
-      expect(room.setRevocations([], [Buffer.from(editorGrant.cnfPk).toString("base64url")])).toBe(true);
+      expect(room.set_revocations([], [Buffer.from(editorGrant.cnf_pk).toString("base64url")])).toBe(true);
       expect(room.presence().clients).toBe(0);
     } finally {
       FakeWS.rooms.delete("acct1/forge1");

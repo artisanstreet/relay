@@ -1,9 +1,9 @@
 import {
-  decodeClientFrame,
-  encodeServerFrame,
+  decode_client_frame,
+  encode_server_frame,
 } from "../schema.ts";
 import type { ClientFrame } from "../schema.ts";
-import { b64uDecode, b64uEncode } from "../b64u.ts";
+import { b64u_decode, b64u_encode } from "../b64u.ts";
 import { Either } from "effect";
 import type { VerifiedGrant } from "../services/grants/verifier.ts";
 import {
@@ -62,10 +62,10 @@ export {
 } from "./limits.ts";
 export type { AckWindow, NowMs, RoomEvents, RoomSnapshot, RoomSocket, SnapshotChannel, SnapshotConn } from "./types.ts";
 
-export type VerifyGrant = (jwt: string, nowSec?: number) => Promise<VerifiedGrant>;
+export type VerifyGrant = (jwt: string, now_sec?: number) => Promise<VerifiedGrant>;
 
 function err(code: string, message: string): string {
-  return encodeServerFrame({ v: 1, type: "error", code, message });
+  return encode_server_frame({ v: 1, type: "error", code, message });
 }
 
 function safe_send(s: RoomSocket | undefined, data: string): boolean {
@@ -124,19 +124,19 @@ export class RoomState {
         self.broadcast_presence();
       },
       mark_dirty(): void {
-        self.markDirty();
+        self.mark_dirty();
       },
     };
   }
 
-  onConnect(connId: string, socket: RoomSocket): void {
-    this.core.pending.set(connId, { socket, deadline: this.core.now() + HELLO_TIMEOUT_MS });
+  on_connect(conn_id: string, socket: RoomSocket): void {
+    this.core.pending.set(conn_id, { socket, deadline: this.core.now() + HELLO_TIMEOUT_MS });
   }
 
-  async onMessage(connId: string, raw: string | ArrayBuffer): Promise<void> {
+  async on_message(conn_id: string, raw: string | ArrayBuffer): Promise<void> {
     const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
     if (text.length > MAX_BODY_B64 + 1024) {
-      this.drop_conn(connId, CLOSE_POLICY, "frame-too-large");
+      this.drop_conn(conn_id, CLOSE_POLICY, "frame-too-large");
       return;
     }
     // JSON.parse never yields undefined on success, so undefined here
@@ -146,84 +146,84 @@ export class RoomState {
       () => undefined,
     );
     if (parsed === undefined) {
-      this.io.send_to(connId, err("malformed", "frame is not JSON"));
-      this.drop_conn(connId, CLOSE_POLICY, "malformed");
+      this.io.send_to(conn_id, err("malformed", "frame is not JSON"));
+      this.drop_conn(conn_id, CLOSE_POLICY, "malformed");
       return;
     }
     const frame = Either.getOrElse(
-      Either.try({ try: () => decodeClientFrame(parsed), catch: () => undefined }),
+      Either.try({ try: () => decode_client_frame(parsed), catch: () => undefined }),
       () => undefined,
     );
     if (frame === undefined) {
-      this.io.send_to(connId, err("invalid-frame", "unknown fields or bad shape"));
-      this.drop_conn(connId, CLOSE_POLICY, "invalid-frame");
+      this.io.send_to(conn_id, err("invalid-frame", "unknown fields or bad shape"));
+      this.drop_conn(conn_id, CLOSE_POLICY, "invalid-frame");
       return;
     }
 
-    if (this.core.pending.has(connId) && !this.core.challenges.has(connId)) {
+    if (this.core.pending.has(conn_id) && !this.core.challenges.has(conn_id)) {
       if (frame.type !== "hello") {
-        this.io.send_to(connId, err("auth-required", "first frame must be hello"));
-        this.drop_conn(connId, CLOSE_AUTH, "auth-required");
+        this.io.send_to(conn_id, err("auth-required", "first frame must be hello"));
+        this.drop_conn(conn_id, CLOSE_AUTH, "auth-required");
         return;
       }
-      await admit_hello(this.core, this.io, connId, frame.grant);
+      await admit_hello(this.core, this.io, conn_id, frame.grant);
       return;
     }
-    if (this.core.challenges.has(connId)) {
+    if (this.core.challenges.has(conn_id)) {
       if (frame.type !== "authenticate") {
-        this.io.send_to(connId, err("auth-required", "expected authenticate"));
-        this.drop_conn(connId, CLOSE_AUTH, "auth-required");
+        this.io.send_to(conn_id, err("auth-required", "expected authenticate"));
+        this.drop_conn(conn_id, CLOSE_AUTH, "auth-required");
         return;
       }
-      admit_authenticate(this.core, this.io, connId, frame.jti, frame.sig);
+      admit_authenticate(this.core, this.io, conn_id, frame.jti, frame.sig);
       return;
     }
-    await this.handle_authed(connId, frame);
+    await this.handle_authed(conn_id, frame);
   }
 
-  onClose(connId: string): void {
-    this.remove_conn(connId);
+  on_close(conn_id: string): void {
+    this.remove_conn(conn_id);
   }
 
-  hasConn(connId: string): boolean {
+  has_conn(conn_id: string): boolean {
     return (
-      this.core.pending.has(connId) ||
-      this.core.challenges.has(connId) ||
-      this.core.forge?.connId === connId ||
-      this.core.clients.has(connId)
+      this.core.pending.has(conn_id) ||
+      this.core.challenges.has(conn_id) ||
+      this.core.forge?.conn_id === conn_id ||
+      this.core.clients.has(conn_id)
     );
   }
 
-  private remove_conn(connId: string): boolean {
+  private remove_conn(conn_id: string): boolean {
     const core = this.core;
-    core.pending.delete(connId);
-    core.challenges.delete(connId);
+    core.pending.delete(conn_id);
+    core.challenges.delete(conn_id);
     let changed = false;
-    if (core.forge?.connId === connId) {
+    if (core.forge?.conn_id === conn_id) {
       core.forge = null;
       changed = true;
-      core.events.onForgePresence?.(false);
-      for (const ch of [...core.channels.keys()]) close_channel(core, this.io, ch, connId, "forge-offline");
+      core.events.on_forge_presence?.(false);
+      for (const ch of [...core.channels.keys()]) close_channel(core, this.io, ch, conn_id, "forge-offline");
     }
-    if (core.clients.has(connId)) {
-      core.clients.delete(connId);
+    if (core.clients.has(conn_id)) {
+      core.clients.delete(conn_id);
       changed = true;
       for (const [ch, st] of [...core.channels]) {
-        if (st.owner === connId) close_channel(core, this.io, ch, connId, "client-gone");
+        if (st.owner === conn_id) close_channel(core, this.io, ch, conn_id, "client-gone");
       }
     }
     if (changed) this.broadcast_presence();
     return changed;
   }
 
-  private socket_of(connId: string): RoomSocket | undefined {
-    if (this.core.forge?.connId === connId) return this.core.forge.socket;
-    return this.core.clients.get(connId)?.socket ?? this.core.pending.get(connId)?.socket;
+  private socket_of(conn_id: string): RoomSocket | undefined {
+    if (this.core.forge?.conn_id === conn_id) return this.core.forge.socket;
+    return this.core.clients.get(conn_id)?.socket ?? this.core.pending.get(conn_id)?.socket;
   }
 
-  private drop_conn(connId: string, code: number, reason: string): void {
-    const s = this.socket_of(connId);
-    this.remove_conn(connId);
+  private drop_conn(conn_id: string, code: number, reason: string): void {
+    const s = this.socket_of(conn_id);
+    this.remove_conn(conn_id);
     if (s) void Either.try({ try: () => s.close(code, reason), catch: () => undefined });
   }
 
@@ -232,7 +232,7 @@ export class RoomState {
   }
 
   private broadcast_presence(): void {
-    const msg = encodeServerFrame({
+    const msg = encode_server_frame({
       v: 1,
       type: "presence",
       forge_online: this.core.forge !== null,
@@ -242,41 +242,41 @@ export class RoomState {
     for (const c of this.core.clients.values()) safe_send(c.socket, msg);
   }
 
-  private async handle_authed(connId: string, frame: ClientFrame): Promise<void> {
-    const found = authed_conn(this.core, connId);
+  private async handle_authed(conn_id: string, frame: ClientFrame): Promise<void> {
+    const found = authed_conn(this.core, conn_id);
     if (!found) {
-      this.io.send_to(connId, err("auth-required", "unknown connection"));
-      this.drop_conn(connId, CLOSE_AUTH, "auth-required");
+      this.io.send_to(conn_id, err("auth-required", "unknown connection"));
+      this.drop_conn(conn_id, CLOSE_AUTH, "auth-required");
       return;
     }
-    if (Math.floor(this.core.now() / 1000) >= found.conn.expSec) {
-      this.io.send_to(connId, err("grant-expired", "grant expired"));
-      this.drop_conn(connId, CLOSE_AUTH, "grant-expired");
+    if (Math.floor(this.core.now() / 1000) >= found.conn.exp_sec) {
+      this.io.send_to(conn_id, err("grant-expired", "grant expired"));
+      this.drop_conn(conn_id, CLOSE_AUTH, "grant-expired");
       return;
     }
     if (frame.type === "hello" || frame.type === "authenticate") {
-      this.io.send_to(connId, err("invalid", "already authenticated"));
+      this.io.send_to(conn_id, err("invalid", "already authenticated"));
       return;
     }
     switch (frame.type) {
       case "open": {
-        channel_open(this.core, this.io, connId, found, frame.channel);
+        channel_open(this.core, this.io, conn_id, found, frame.channel);
         return;
       }
       case "data": {
-        route_data(this.core, this.io, connId, found.is_forge, frame);
+        route_data(this.core, this.io, conn_id, found.is_forge, frame);
         return;
       }
       case "ack": {
-        handle_ack(this.core, this.io, connId, found.is_forge, frame.channel, frame.seq);
+        handle_ack(this.core, this.io, conn_id, found.is_forge, frame.channel, frame.seq);
         return;
       }
       case "close": {
-        channel_close(this.core, this.io, connId, found.is_forge, frame.channel, frame.reason);
+        channel_close(this.core, this.io, conn_id, found.is_forge, frame.channel, frame.reason);
         return;
       }
       case "pong": {
-        found.conn.lastPong = this.core.now();
+        found.conn.last_pong = this.core.now();
         return;
       }
     }
@@ -286,7 +286,7 @@ export class RoomState {
     return is_revoked(grant, this.core.revoked_machines, this.core.revoked_keys);
   }
 
-  setRevocations(machines: string[], keys: string[]): boolean {
+  set_revocations(machines: string[], keys: string[]): boolean {
     const cap = (arr: string[]) => arr.slice(0, MAX_REVOKED_JTIS);
     const nm = new Set(cap(machines));
     const nk = new Set(cap(keys));
@@ -294,14 +294,14 @@ export class RoomState {
       [...nm].some((x) => !this.core.revoked_machines.has(x)) || [...nk].some((x) => !this.core.revoked_keys.has(x));
     this.core.revoked_machines = nm;
     this.core.revoked_keys = nk;
-    this.markDirty();
+    this.mark_dirty();
     this.sweep_revocations();
     return changed;
   }
 
   private sweep_revocations(): void {
     if (this.core.forge && this.is_revoked(this.core.forge.grant)) {
-      const id = this.core.forge.connId;
+      const id = this.core.forge.conn_id;
       this.io.send_to(id, err("revoked", "grant revoked"));
       this.drop_conn(id, CLOSE_REVOKED, "revoked");
     }
@@ -316,7 +316,7 @@ export class RoomState {
   tick(): void {
     const core = this.core;
     const now = core.now();
-    const nowSec = Math.floor(now / 1000);
+    const now_sec = Math.floor(now / 1000);
     for (const [id, p] of [...core.pending]) {
       if (!core.challenges.has(id) && now > p.deadline) {
         this.io.send_to(id, err("timeout", "hello not received in time"));
@@ -324,56 +324,56 @@ export class RoomState {
       }
     }
     for (const [id, ch] of [...core.challenges]) {
-      if (now > ch.expiresAt) {
+      if (now > ch.expires_at) {
         core.challenges.delete(id);
         this.io.send_to(id, err("timeout", "authenticate not received in time"));
         this.drop_conn(id, CLOSE_AUTH, "challenge-timeout");
       }
     }
-    if (core.forge && nowSec >= core.forge.expSec) {
-      const id = core.forge.connId;
+    if (core.forge && now_sec >= core.forge.exp_sec) {
+      const id = core.forge.conn_id;
       this.io.send_to(id, err("grant-expired", "grant expired"));
       this.drop_conn(id, CLOSE_AUTH, "grant-expired");
     }
     for (const [id, c] of [...core.clients]) {
-      if (nowSec >= c.expSec) {
+      if (now_sec >= c.exp_sec) {
         this.io.send_to(id, err("grant-expired", "grant expired"));
         this.drop_conn(id, CLOSE_AUTH, "grant-expired");
       }
     }
     this.sweep_revocations();
-    const ping = encodeServerFrame({ v: 1, type: "ping", t: now });
+    const ping = encode_server_frame({ v: 1, type: "ping", t: now });
     const check = (id: string, c: AuthedConn) => {
-      if (now - c.lastPong > PONG_TIMEOUT_MS) {
+      if (now - c.last_pong > PONG_TIMEOUT_MS) {
         this.io.send_to(id, err("timeout", "heartbeat lost"));
         this.drop_conn(id, CLOSE_POLICY, "heartbeat-timeout");
         return;
       }
-      if (now - c.lastPingSent >= PING_INTERVAL_MS) {
-        c.lastPingSent = now;
+      if (now - c.last_ping_sent >= PING_INTERVAL_MS) {
+        c.last_ping_sent = now;
         safe_send(c.socket, ping);
       }
     };
-    if (core.forge) check(core.forge.connId, core.forge);
+    if (core.forge) check(core.forge.conn_id, core.forge);
     for (const [id, c] of [...core.clients]) check(id, c);
   }
 
-  nextDeadlineMs(): number | null {
+  next_deadline_ms(): number | null {
     let next: number | null = null;
     const consider = (t: number) => {
       if (next === null || t < next) next = t;
     };
     const now = this.core.now();
     for (const p of this.core.pending.values()) consider(p.deadline);
-    for (const ch of this.core.challenges.values()) consider(ch.expiresAt);
+    for (const ch of this.core.challenges.values()) consider(ch.expires_at);
     const conns: AuthedConn[] = [
       ...(this.core.forge ? [this.core.forge] : []),
       ...this.core.clients.values(),
     ];
     for (const c of conns) {
-      consider(c.expSec * 1000);
-      consider(c.lastPong + PONG_TIMEOUT_MS);
-      consider(c.lastPingSent + PING_INTERVAL_MS);
+      consider(c.exp_sec * 1000);
+      consider(c.last_pong + PONG_TIMEOUT_MS);
+      consider(c.last_ping_sent + PING_INTERVAL_MS);
     }
     if (next !== null && next < now) return now;
     return next;
@@ -385,15 +385,15 @@ export class RoomState {
 
   private dirty = false;
 
-  isDirty(): boolean {
+  is_dirty(): boolean {
     return this.dirty;
   }
 
-  markDirty(): void {
+  mark_dirty(): void {
     this.dirty = true;
   }
 
-  clearDirty(): void {
+  clear_dirty(): void {
     this.dirty = false;
   }
 
@@ -409,12 +409,12 @@ export class RoomState {
       conns: [
         ...(core.forge
           ? [{
-              conn: core.forge.connId,
+              conn: core.forge.conn_id,
               role: "forge" as const,
               jti: core.forge.grant.claims.jti,
-              exp: core.forge.expSec,
+              exp: core.forge.exp_sec,
               kid: core.forge.grant.kid,
-              cnfX: b64uEncode(core.forge.grant.cnfPk),
+              cnfX: b64u_encode(core.forge.grant.cnf_pk),
               scope: [...core.forge.grant.claims.scope],
             }]
           : []),
@@ -422,53 +422,63 @@ export class RoomState {
           conn,
           role: "client" as const,
           jti: c.grant.claims.jti,
-          exp: c.expSec,
+          exp: c.exp_sec,
           kid: c.grant.kid,
-          cnfX: b64uEncode(c.grant.cnfPk),
+          cnfX: b64u_encode(c.grant.cnf_pk),
           scope: [...c.grant.claims.scope],
         })),
       ],
       channels: [...core.channels].map(([name, st]) => ({
         name,
         owner: st.owner,
-        lastClientSeq: st.lastClientSeq,
-        lastForgeSeq: st.lastForgeSeq,
-        toForge: { ...st.toForge, sizes: [...st.toForge.sizes] },
-        toClient: { ...st.toClient, sizes: [...st.toClient.sizes] },
+        lastClientSeq: st.last_client_seq,
+        lastForgeSeq: st.last_forge_seq,
+        toForge: {
+          sentHigh: st.to_forge.sent_high,
+          ackedHigh: st.to_forge.acked_high,
+          sizes: [...st.to_forge.sizes],
+          unackedBytes: st.to_forge.unacked_bytes,
+        },
+        toClient: {
+          sentHigh: st.to_client.sent_high,
+          ackedHigh: st.to_client.acked_high,
+          sizes: [...st.to_client.sizes],
+          unackedBytes: st.to_client.unacked_bytes,
+        },
       })),
     };
   }
 
-  restore(snap: RoomSnapshot, socketFor: (connId: string) => RoomSocket | null): { restored: number; dropped: number } {
+  restore(snap: RoomSnapshot, socket_for: (conn_id: string) => RoomSocket | null): { restored: number; dropped: number } {
     if (snap.v !== 1 || snap.account !== this.account || snap.machine !== this.machine) {
       throw new Error("snapshot mismatch");
     }
     const core = this.core;
-    const nowSec = Math.floor(core.now() / 1000);
+    const now_sec = Math.floor(core.now() / 1000);
     core.revoked_machines = new Set(snap.revokedMachines.slice(0, MAX_REVOKED_JTIS));
     core.revoked_keys = new Set(snap.revokedKeys.slice(0, MAX_REVOKED_JTIS));
-    core.used_jti = new Map(snap.usedJti.filter(([, e]) => e >= nowSec));
-    const machineRevoked = core.revoked_machines.has(this.machine);
+    core.used_jti = new Map(snap.usedJti.filter(([, e]) => e >= now_sec));
+    const machine_revoked = core.revoked_machines.has(this.machine);
     let restored = 0;
     let dropped = 0;
     const live = new Set<string>();
     for (const c of snap.conns) {
-      const sock = socketFor(c.conn);
+      const sock = socket_for(c.conn);
       if (!sock) {
         dropped++;
         continue;
       }
       type Freshness = { readonly tag: "fresh" } | { readonly tag: "stale"; readonly code: number };
-      const freshness: Freshness = c.exp <= nowSec
+      const freshness: Freshness = c.exp <= now_sec
         ? { tag: "stale", code: CLOSE_AUTH }
-        : machineRevoked
+        : machine_revoked
           ? { tag: "stale", code: CLOSE_REVOKED }
-          : Either.match(Either.try({ try: () => b64uDecode(c.cnfX), catch: () => undefined }), {
+          : Either.match(Either.try({ try: () => b64u_decode(c.cnfX), catch: () => undefined }), {
               onLeft: (): Freshness => ({ tag: "stale", code: CLOSE_AUTH }),
-              onRight: (cnfPk): Freshness =>
-                cnfPk.length !== 32
+              onRight: (cnf_pk): Freshness =>
+                cnf_pk.length !== 32
                   ? { tag: "stale", code: CLOSE_AUTH }
-                  : matches_revoked_keys(c.kid, cnfPk, core.revoked_keys)
+                  : matches_revoked_keys(c.kid, cnf_pk, core.revoked_keys)
                     ? { tag: "stale", code: CLOSE_REVOKED }
                     : { tag: "fresh" },
             });
@@ -486,9 +496,9 @@ export class RoomState {
       const conn: AuthedConn = {
         socket: sock,
         grant: reattached,
-        expSec: c.exp,
-        lastPong: core.now(),
-        lastPingSent: 0,
+        exp_sec: c.exp,
+        last_pong: core.now(),
+        last_ping_sent: 0,
       };
       if (c.role === "forge") {
         if (core.forge) {
@@ -496,7 +506,7 @@ export class RoomState {
           dropped++;
           continue;
         }
-        core.forge = { ...conn, connId: c.conn };
+        core.forge = { ...conn, conn_id: c.conn };
       } else {
         if (core.clients.size >= MAX_CLIENTS) {
           void Either.try({ try: () => sock.close(CLOSE_POLICY, "room-full"), catch: () => undefined });
@@ -510,18 +520,28 @@ export class RoomState {
     }
     for (const ch of snap.channels) {
       if (core.channels.size >= MAX_CHANNELS) break;
-      const ownerLive = live.has(ch.owner);
-      const forgeLive = core.forge !== null;
-      if (!ownerLive || !forgeLive) continue;
+      const owner_live = live.has(ch.owner);
+      const forge_live = core.forge !== null;
+      if (!owner_live || !forge_live) continue;
       core.channels.set(ch.name, {
         owner: ch.owner,
-        lastClientSeq: ch.lastClientSeq,
-        lastForgeSeq: ch.lastForgeSeq,
-        toForge: { ...ch.toForge, sizes: [...ch.toForge.sizes] },
-        toClient: { ...ch.toClient, sizes: [...ch.toClient.sizes] },
+        last_client_seq: ch.lastClientSeq,
+        last_forge_seq: ch.lastForgeSeq,
+        to_forge: {
+          sent_high: ch.toForge.sentHigh,
+          acked_high: ch.toForge.ackedHigh,
+          sizes: [...ch.toForge.sizes],
+          unacked_bytes: ch.toForge.unackedBytes,
+        },
+        to_client: {
+          sent_high: ch.toClient.sentHigh,
+          acked_high: ch.toClient.ackedHigh,
+          sizes: [...ch.toClient.sizes],
+          unacked_bytes: ch.toClient.unackedBytes,
+        },
       });
     }
-    this.clearDirty();
+    this.clear_dirty();
     this.broadcast_presence();
     return { restored, dropped };
   }

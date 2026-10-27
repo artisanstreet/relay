@@ -1,16 +1,16 @@
-import { encodeServerFrame } from "../schema.ts";
+import { encode_server_frame } from "../schema.ts";
 import type { AccountId, MachineId } from "../schema.ts";
-import { b64uDecode, b64uEncode } from "../b64u.ts";
+import { b64u_decode, b64u_encode } from "../b64u.ts";
 import { has_scope } from "../services/grants/verifier.ts";
-import { popVerify } from "../e2e.ts";
-import { randomBytes } from "@noble/hashes/utils.js";
+import { pop_verify } from "../e2e.ts";
+import { randomBytes as random_bytes } from "@noble/hashes/utils.js";
 import { Either } from "effect";
 import { CHALLENGE_TTL_MS, CLOSE_AUTH, CLOSE_FORBIDDEN, CLOSE_POLICY, CLOSE_REPLACED, CLOSE_REVOKED, MAX_CLIENTS } from "./limits.ts";
 import { is_revoked } from "./revocation.ts";
 import type { AuthedConn, RoomCore, RoomIo } from "./types.ts";
 
 function err(code: string, message: string): string {
-  return encodeServerFrame({ v: 1, type: "error", code, message });
+  return encode_server_frame({ v: 1, type: "error", code, message });
 }
 
 function prune_jti(core: RoomCore): void {
@@ -56,17 +56,17 @@ export async function admit_hello(core: RoomCore, io: RoomIo, conn_id: string, j
   }
   core.used_jti.set(cl.jti, cl.exp);
   io.mark_dirty();
-  const nonce = randomBytes(32);
+  const nonce = random_bytes(32);
   core.challenges.set(conn_id, {
     nonce,
     jti: cl.jti,
-    cnfPk: grant.cnfPk,
+    cnf_pk: grant.cnf_pk,
     grant,
-    expiresAt: core.now() + CHALLENGE_TTL_MS,
+    expires_at: core.now() + CHALLENGE_TTL_MS,
   });
   io.send_to(
     conn_id,
-    encodeServerFrame({ v: 1, type: "challenge", nonce: b64uEncode(nonce), timeout_ms: CHALLENGE_TTL_MS }),
+    encode_server_frame({ v: 1, type: "challenge", nonce: b64u_encode(nonce), timeout_ms: CHALLENGE_TTL_MS }),
   );
 }
 
@@ -74,12 +74,12 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
   const ch = core.challenges.get(conn_id);
   if (!ch) return;
   core.challenges.delete(conn_id);
-  if (core.now() > ch.expiresAt || jti !== ch.jti) {
+  if (core.now() > ch.expires_at || jti !== ch.jti) {
     io.send_to(conn_id, err("auth-failed", "challenge expired or mismatched"));
     io.drop(conn_id, CLOSE_AUTH, "auth-failed");
     return;
   }
-  const sig = Either.match(Either.try({ try: () => b64uDecode(sig_b64), catch: () => undefined }), {
+  const sig = Either.match(Either.try({ try: () => b64u_decode(sig_b64), catch: () => undefined }), {
     onLeft: () => {
       io.send_to(conn_id, err("auth-failed", "bad signature encoding"));
       io.drop(conn_id, CLOSE_AUTH, "auth-failed");
@@ -88,7 +88,7 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
     onRight: (right) => right as Uint8Array | undefined,
   });
   if (!sig) return;
-  if (!popVerify(ch.cnfPk, ch.nonce, ch.jti, sig)) {
+  if (!pop_verify(ch.cnf_pk, ch.nonce, ch.jti, sig)) {
     io.send_to(conn_id, err("auth-failed", "proof of possession failed"));
     io.drop(conn_id, CLOSE_AUTH, "auth-failed");
     return;
@@ -100,18 +100,18 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
   const conn: AuthedConn = {
     socket: pend.socket,
     grant: ch.grant,
-    expSec: ch.grant.claims.exp,
-    lastPong: core.now(),
-    lastPingSent: 0,
+    exp_sec: ch.grant.claims.exp,
+    last_pong: core.now(),
+    last_ping_sent: 0,
   };
   if (role === "forge") {
     const prev = core.forge;
     if (prev) {
-      io.remove_conn(prev.connId);
+      io.remove_conn(prev.conn_id);
       void Either.try({ try: () => prev.socket.close(CLOSE_REPLACED, "replaced"), catch: () => undefined });
     }
-    core.forge = { ...conn, connId: conn_id };
-    core.events.onForgePresence?.(true);
+    core.forge = { ...conn, conn_id: conn_id };
+    core.events.on_forge_presence?.(true);
   } else {
     if (core.clients.size >= MAX_CLIENTS) {
       io.send_to(conn_id, err("room-full", "too many clients"));
@@ -123,7 +123,7 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
   io.mark_dirty();
   io.send_to(
     conn_id,
-    encodeServerFrame({
+    encode_server_frame({
       v: 1,
       type: "ready",
       role,

@@ -4,8 +4,8 @@ export {
   KIND_DATA,
   MAX_APP_PLAINTEXT,
   MAX_GRANT_JWT,
-  readU16be,
-  sealedFrameSize,
+  read_u16be,
+  sealed_frame_size,
   u16be,
 } from "./channel/framing.ts";
 export {
@@ -14,10 +14,10 @@ export {
   PROLOGUE_DOMAIN,
   ROLE_INITIATOR,
   ROLE_RESPONDER,
-  bindingMessage,
-  constantTimeEqual,
-  prologueBytes,
-  staticKeypairFromSecret,
+  binding_message,
+  equal_bytes,
+  prologue_bytes,
+  static_keypair_from_secret,
 } from "./channel/context.ts";
 export type {
   ChannelCtx,

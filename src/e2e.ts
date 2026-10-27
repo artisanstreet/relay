@@ -13,7 +13,7 @@ export const POP_DOMAIN = "ast-relay-auth-v1";
 const te = new TextEncoder();
 const td = new TextDecoder();
 
-export function popMessage(nonce: Uint8Array, jti: string): Uint8Array {
+export function pop_message(nonce: Uint8Array, jti: string): Uint8Array {
   const d = te.encode(POP_DOMAIN);
   const j = te.encode(jti);
   const out = new Uint8Array(d.length + nonce.length + j.length);
@@ -23,34 +23,34 @@ export function popMessage(nonce: Uint8Array, jti: string): Uint8Array {
   return out;
 }
 
-export function popSign(cnfSk: Uint8Array, nonce: Uint8Array, jti: string): Uint8Array {
-  return ed25519.sign(popMessage(nonce, jti), cnfSk);
+export function pop_sign(cnf_sk: Uint8Array, nonce: Uint8Array, jti: string): Uint8Array {
+  return ed25519.sign(pop_message(nonce, jti), cnf_sk);
 }
 
-export function popVerify(
-  cnfPk: Uint8Array,
+export function pop_verify(
+  cnf_pk: Uint8Array,
   nonce: Uint8Array,
   jti: string,
   sig: Uint8Array,
 ): boolean {
   return Either.getOrElse(
     Either.try({
-      try: () => ed25519.verify(sig, popMessage(nonce, jti), cnfPk),
+      try: () => ed25519.verify(sig, pop_message(nonce, jti), cnf_pk),
       catch: () => false,
     }),
     (fallback) => fallback,
   );
 }
 
-export function newEd25519Keypair(): { sk: Uint8Array; pk: Uint8Array } {
+export function new_ed25519_keypair(): { sk: Uint8Array; pk: Uint8Array } {
   const sk = ed25519.utils.randomSecretKey();
   return { sk, pk: ed25519.getPublicKey(sk) };
 }
 
-export function encodeUtf8(s: string): Uint8Array {
+export function encode_utf8(s: string): Uint8Array {
   return te.encode(s);
 }
 
-export function decodeUtf8(b: Uint8Array): string {
+export function decode_utf8(b: Uint8Array): string {
   return td.decode(b);
 }

@@ -29,7 +29,7 @@ class FakeWs {
   }
 }
 
-const grant: GrantMaterial = { jwt: "stub", jti: "stub-jti", cnfSk: new Uint8Array(32) };
+const grant: GrantMaterial = { jwt: "stub", jti: "stub-jti", cnf_sk: new Uint8Array(32) };
 
 function with_timeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([

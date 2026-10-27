@@ -9,7 +9,7 @@ import { GrantAuthority } from "./services/grants/verifier.ts";
 import type { GrantAuthorityConfig } from "./services/grants/verifier.ts";
 import { GrantVerifierLive } from "./services/grants/verifier.ts";
 import { RevocationClientLive } from "./services/revocations.ts";
-import { corsPreflight, corsResponseHeaders } from "./cors.ts";
+import { cors_preflight, cors_response_headers } from "./cors.ts";
 
 export type { Env };
 export { MachineRoom } from "./do/machine-room.ts";
@@ -30,7 +30,7 @@ const isolate_runtime = ManagedRuntime.make(BaseServices);
 function with_cors(res: Response, req: Request, portal_origin: string | null): Response {
   const out = new Response(res.body, res);
   out.headers.set("Vary", "Origin");
-  const h = corsResponseHeaders(req, portal_origin);
+  const h = cors_response_headers(req, portal_origin);
   if (h) {
     out.headers.set("Access-Control-Allow-Origin", h.get("Access-Control-Allow-Origin") as string);
   }
@@ -55,7 +55,7 @@ export default {
       });
       const portal_origin = cfg?.portal_origin ?? null;
 
-      const preflight = corsPreflight(req, /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, portal_origin);
+      const preflight = cors_preflight(req, /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, portal_origin);
       if (preflight) return preflight;
 
       const route = path.match(/^\/v1\/route\/([^/]+)\/([^/]+)$/);

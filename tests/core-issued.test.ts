@@ -16,9 +16,9 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createGrantVerifier } from "../src/jwt.ts";
-import { parseRevocationsResponse } from "../src/revocations.ts";
-import { makeRoom, send, fakeSocket, stubFetch } from "./helpers.ts";
+import { create_grant_verifier } from "../src/jwt.ts";
+import { parse_revocations_response } from "../src/revocations.ts";
+import { make_room, send, fake_socket, stub_fetch } from "./helpers.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ARTIFACT = join(root, "contracts", "fixtures", "core-issued.json");
@@ -30,7 +30,7 @@ interface CoreIssued {
   accountId: string;
   machineId: string;
   issuedAt: string;
-  expiresAt: string;
+  expires_at: string;
   expected: Record<string, unknown>;
   grant: string;
   jwks: { keys: { kty: string; crv: string; x: string; kid: string; alg: string; use: string }[] };
@@ -51,12 +51,12 @@ describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
       expect(fx[f], `artifact field ${f}`).toBeDefined();
     }
     const unverified = payloadOf(fx.grant);
-    const nowSec = (unverified["iat"] as number) + 60; // inside the artifact TTL
-    const verify = createGrantVerifier(
-      { jwksUrl: "https://core.invalid/jwks", expectedIss: fx.issuer, expectedAud: fx.audience, maxTtlSec: 300 },
-      stubFetch(fx.jwks),
+    const now_sec = (unverified["iat"] as number) + 60; // inside the artifact TTL
+    const verify = create_grant_verifier(
+      { jwks_url: "https://core.invalid/jwks", expected_iss: fx.issuer, expected_aud: fx.audience, max_ttl_sec: 300 },
+      stub_fetch(fx.jwks),
     );
-    const g = await verify(fx.grant, nowSec);
+    const g = await verify(fx.grant, now_sec);
     // Claim names per Core docs/contracts.md §4 (actual JWT, not the
     // double-nested `expected.cnf` quirk noted above).
     expect(g.claims.v).toBe(1);
@@ -70,13 +70,13 @@ describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
     );
     expect(g.claims.cnf.jwk.kty).toBe("OKP");
     expect(g.claims.cnf.jwk.crv).toBe("Ed25519");
-    expect(g.cnfPk.length).toBe(32);
+    expect(g.cnf_pk.length).toBe(32);
     expect(g.kid).toBe(fx.jwks.keys[0]?.kid);
   });
 
   it("artifact revocation payload parses to enforcement inputs", () => {
     const fx = JSON.parse(readFileSync(ARTIFACT, "utf8")) as CoreIssued;
-    const list = parseRevocationsResponse(fx.revocations);
+    const list = parse_revocations_response(fx.revocations);
     expect(list).toEqual({ machines: fx.revocations.revokedMachineIds, keys: fx.revocations.revokedKeyIds });
     expect(typeof fx.revocations.asOf).toBe("string");
   });
@@ -96,26 +96,26 @@ describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
 
   it("artifact grant admits cleanly, and is rejected once its machine is listed", async () => {
     const fx = JSON.parse(readFileSync(ARTIFACT, "utf8")) as CoreIssued;
-    const verify = createGrantVerifier(
-      { jwksUrl: "https://core.invalid/jwks", expectedIss: fx.issuer, expectedAud: fx.audience, maxTtlSec: 300 },
-      stubFetch(fx.jwks),
+    const verify = create_grant_verifier(
+      { jwks_url: "https://core.invalid/jwks", expected_iss: fx.issuer, expected_aud: fx.audience, max_ttl_sec: 300 },
+      stub_fetch(fx.jwks),
     );
-    const nowSec = (payloadOf(fx.grant)["iat"] as number) + 60;
-    const g = await verify(fx.grant, nowSec);
+    const now_sec = (payloadOf(fx.grant)["iat"] as number) + 60;
+    const g = await verify(fx.grant, now_sec);
 
     // Clean room (artifact revocations are empty): hello reaches challenge.
-    const h1 = makeRoom(verify, g.claims.sub, g.claims.mid, nowSec * 1000);
-    const s1 = fakeSocket();
-    h1.room.onConnect("c", s1);
+    const h1 = make_room(verify, g.claims.sub, g.claims.mid, now_sec * 1000);
+    const s1 = fake_socket();
+    h1.room.on_connect("c", s1);
     await send(h1.room, "c", { v: 1, type: "hello", grant: fx.grant });
     expect(s1.closed).toBeNull();
 
     // Separate room instance (fresh jti cache) with the artifact machine
     // listed: the SAME real bytes are rejected at hello.
-    const h2 = makeRoom(verify, g.claims.sub, g.claims.mid, nowSec * 1000);
-    h2.room.setRevocations([g.claims.mid], []);
-    const s2 = fakeSocket();
-    h2.room.onConnect("c", s2);
+    const h2 = make_room(verify, g.claims.sub, g.claims.mid, now_sec * 1000);
+    h2.room.set_revocations([g.claims.mid], []);
+    const s2 = fake_socket();
+    h2.room.on_connect("c", s2);
     await send(h2.room, "c", { v: 1, type: "hello", grant: fx.grant });
     expect(s2.closed?.code).toBe(4002);
   });

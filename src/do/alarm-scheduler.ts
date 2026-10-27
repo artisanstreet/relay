@@ -6,7 +6,7 @@ export function next_wake_ms(
   last_rev_fetch: number,
   poll_ms: number,
 ): number | null {
-  const room_next = room?.nextDeadlineMs() ?? null;
+  const room_next = room?.next_deadline_ms() ?? null;
   let next = room_next;
   if (room && (room.presence().clients > 0 || room.presence().forge_online)) {
     const poll_at = last_rev_fetch + poll_ms;

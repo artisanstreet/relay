@@ -9,33 +9,33 @@
 // presence, Forge enforces execution itself"); the Forge's application
 // layer enforces execution independently (Rust), never trusting this alone.
 
-import { createGrantVerifier, hasScope } from "./jwt.ts";
+import { create_grant_verifier, has_scope } from "./jwt.ts";
 import type { ChannelCtx, VerifyChannelJwt } from "./channel.ts";
 
 export interface ChannelVerifierOptions {
-  jwksUrl: string;
-  expectedIss: string;
-  expectedAud: string;
-  maxTtlSec: number;
+  jwks_url: string;
+  expected_iss: string;
+  expected_aud: string;
+  max_ttl_sec: number;
 }
 
 /** Build the Forge-side channel execution authorizer (and tests). */
-export function makeChannelJwtVerifier(
+export function make_channel_jwt_verifier(
   opts: ChannelVerifierOptions,
-  fetchImpl?: (url: string, options: { headers: Headers; method: "GET"; redirect: "manual"; signal: AbortSignal }) => Promise<Response>,
+  fetch_impl?: (url: string, options: { headers: Headers; method: "GET"; redirect: "manual"; signal: AbortSignal }) => Promise<Response>,
 ): VerifyChannelJwt {
-  const verify = createGrantVerifier(
-    { jwksUrl: opts.jwksUrl, expectedIss: opts.expectedIss, expectedAud: opts.expectedAud, maxTtlSec: opts.maxTtlSec },
-    fetchImpl,
+  const verify = create_grant_verifier(
+    { jwks_url: opts.jwks_url, expected_iss: opts.expected_iss, expected_aud: opts.expected_aud, max_ttl_sec: opts.max_ttl_sec },
+    fetch_impl,
   );
-  return async (jwt: string, ctx: ChannelCtx, nowSec?: number): Promise<Uint8Array> => {
-    const g = await verify(jwt, nowSec);
+  return async (jwt: string, ctx: ChannelCtx, now_sec?: number): Promise<Uint8Array> => {
+    const g = await verify(jwt, now_sec);
     if (g.claims.role !== "client") throw new Error("channel grants must have role client");
     if (g.claims.sub !== ctx.account || g.claims.mid !== ctx.machine) {
       throw new Error("grant not bound to this channel context");
     }
-    if (!hasScope(g, "relay:connect")) throw new Error("grant lacks relay:connect");
-    if (!hasScope(g, "forge:execute")) throw new Error("grant lacks forge:execute");
-    return g.cnfPk;
+    if (!has_scope(g, "relay:connect")) throw new Error("grant lacks relay:connect");
+    if (!has_scope(g, "forge:execute")) throw new Error("grant lacks forge:execute");
+    return g.cnf_pk;
   };
 }

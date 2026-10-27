@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { Effect, Exit, Layer } from "effect";
 import { FetchHttpClient } from "@effect/platform";
 import { GrantAuthority, GrantVerifier, GrantVerifierLive } from "../../src/services/grants/verifier.ts";
-import { mintGrant, testCoreKey, TEST_AUD, TEST_ISS, TEST_KID } from "../helpers.ts";
+import { mint_grant, test_core_key, TEST_AUD, TEST_ISS, TEST_KID } from "../helpers.ts";
 
 describe("jwks transport fidelity (SDK policy preserved)", () => {
   it("does not follow redirects and propagates a real abort signal", async () => {
-    const core = testCoreKey();
-    const g = await mintGrant(core, { role: "client" });
+    const core = test_core_key();
+    const g = await mint_grant(core, { role: "client" });
     const seen: Array<{ url: string; init: RequestInit }> = [];
     const fetch_layer = Layer.succeed(
       FetchHttpClient.Fetch,

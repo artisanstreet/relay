@@ -8,29 +8,29 @@ import { describe, expect, it } from "vitest";
 import { CLOSE_AUTH, CLOSE_REVOKED } from "../src/room.ts";
 import { RoomState } from "../src/room.ts";
 import type { RoomSocket } from "../src/room.ts";
-import { popSign } from "../src/e2e.ts";
-import { b64uEncode } from "../src/jwt.ts";
-import { fakeSocket, lastSent, mintGrant, send, testCoreKey, testVerifier } from "./helpers.ts";
+import { pop_sign } from "../src/e2e.ts";
+import { b64u_encode } from "../src/jwt.ts";
+import { fake_socket, last_sent, mint_grant, send, test_core_key, test_verifier } from "./helpers.ts";
 
-async function authConn(room: RoomState, id: string, role: "forge" | "client", core = testCoreKey(), grantOpts = {}) {
-  const g = await mintGrant(core, { role, ...grantOpts });
-  const s = fakeSocket();
-  room.onConnect(id, s);
+async function authConn(room: RoomState, id: string, role: "forge" | "client", core = test_core_key(), grantOpts = {}) {
+  const g = await mint_grant(core, { role, ...grantOpts });
+  const s = fake_socket();
+  room.on_connect(id, s);
   await send(room, id, { v: 1, type: "hello", grant: g.jwt });
-  const ch = lastSent(s) as { nonce: string };
+  const ch = last_sent(s) as { nonce: string };
   const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
-  await send(room, id, { v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) });
+  await send(room, id, { v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) });
   return { s, g };
 }
 
-function adapter(s: ReturnType<typeof fakeSocket>): RoomSocket {
+function adapter(s: ReturnType<typeof fake_socket>): RoomSocket {
   return { send: (d: string) => s.send(d), close: (c?: number, r?: string) => s.close(c, r) };
 }
 
 describe("hibernation restore", () => {
   it("restores membership, channels, and seq high-waters onto live sockets", async () => {
-    const core = testCoreKey();
-    const verify = testVerifier(core);
+    const core = test_core_key();
+    const verify = test_verifier(core);
     const a = new RoomState("acct1", "forge1", verify, () => Date.now());
     await authConn(a, "f", "forge", core);
     await authConn(a, "c", "client", core);
@@ -43,10 +43,10 @@ describe("hibernation restore", () => {
 
     // "Eviction": fresh instance, same identity, live sockets for both conns.
     const b = new RoomState("acct1", "forge1", verify, () => Date.now());
-    const fs = fakeSocket();
-    const cs = fakeSocket();
+    const fs = fake_socket();
+    const cs = fake_socket();
     const sockets = new Map([["f", fs], ["c", cs]]);
-    const res = b.restore(snap, (id) => (sockets.has(id) ? adapter(sockets.get(id) as ReturnType<typeof fakeSocket>) : null));
+    const res = b.restore(snap, (id) => (sockets.has(id) ? adapter(sockets.get(id) as ReturnType<typeof fake_socket>) : null));
     expect(res).toEqual({ restored: 2, dropped: 0 });
     expect(b.presence()).toEqual({ forge_online: true, clients: 1 });
 
@@ -62,8 +62,8 @@ describe("hibernation restore", () => {
   });
 
   it("drops expired and revoked conns at restore, keeps the rest", async () => {
-    const core = testCoreKey();
-    const verify = testVerifier(core);
+    const core = test_core_key();
+    const verify = test_verifier(core);
     const a = new RoomState("acct1", "forge1", verify, () => Date.now());
     const { g: fg } = await authConn(a, "f", "forge", core);
     const { g: cg } = await authConn(a, "c", "client", core);
@@ -72,13 +72,13 @@ describe("hibernation restore", () => {
 
     // Revoke the client's KEY before the wake (v1 list model).
     const b = new RoomState("acct1", "forge1", verify, () => Date.now());
-        const fs = fakeSocket();
-    const cs = fakeSocket();
+        const fs = fake_socket();
+    const cs = fake_socket();
     const sockets = new Map([["f", fs], ["c", cs]]);
     // Merge revocation into the snapshot path: restore reads snap's own
     // persisted lists, the way the DO would after a poll.
-    const snap2 = { ...snap, revokedKeys: [Buffer.from(cg.cnfPk).toString("base64url")] };
-    const res = b.restore(snap2, (id) => (sockets.has(id) ? adapter(sockets.get(id) as ReturnType<typeof fakeSocket>) : null));
+    const snap2 = { ...snap, revokedKeys: [Buffer.from(cg.cnf_pk).toString("base64url")] };
+    const res = b.restore(snap2, (id) => (sockets.has(id) ? adapter(sockets.get(id) as ReturnType<typeof fake_socket>) : null));
     expect(res.restored).toBe(1);
     expect(res.dropped).toBe(1);
     expect(cs.closed?.code).toBe(CLOSE_REVOKED);
@@ -86,7 +86,7 @@ describe("hibernation restore", () => {
   });
 
   it("rejects mismatched snapshots", () => {
-    const verify = testVerifier(testCoreKey());
+    const verify = test_verifier(test_core_key());
     const b = new RoomState("acct1", "forge1", verify, () => Date.now());
     const bad = {
       v: 1 as const, account: "other", machine: "forge1",
@@ -96,19 +96,19 @@ describe("hibernation restore", () => {
   });
 
   it("grants expire per-frame and on sweep, even after long sleep", async () => {
-    const core = testCoreKey();
+    const core = test_core_key();
     let now = Date.now();
-    const verify = testVerifier(core);
+    const verify = test_verifier(core);
     const a = new RoomState("acct1", "forge1", verify, () => now);
     const iat = Math.floor(now / 1000);
     // Short-lived grant: 100s TTL.
-    const g = await mintGrant(core, { role: "client", iat, exp: iat + 100 });
-    const s = fakeSocket();
-    a.onConnect("c", s);
+    const g = await mint_grant(core, { role: "client", iat, exp: iat + 100 });
+    const s = fake_socket();
+    a.on_connect("c", s);
     await send(a, "c", { v: 1, type: "hello", grant: g.jwt });
-    const ch = lastSent(s) as { nonce: string };
+    const ch = last_sent(s) as { nonce: string };
     const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
-    await send(a, "c", { v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) });
+    await send(a, "c", { v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) });
     expect(s.closed).toBeNull();
 
     // Sleep past expiry with NO tick (alarm missed the wake): the next
@@ -118,34 +118,34 @@ describe("hibernation restore", () => {
     expect(s.closed?.code).toBe(CLOSE_AUTH);
 
     // Sweep path: fresh conn, sleep, then tick closes it.
-    const g2 = await mintGrant(core, { role: "client", iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + 100 });
-    const s2 = fakeSocket();
-    a.onConnect("c2", s2);
+    const g2 = await mint_grant(core, { role: "client", iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + 100 });
+    const s2 = fake_socket();
+    a.on_connect("c2", s2);
     await send(a, "c2", { v: 1, type: "hello", grant: g2.jwt });
-    const ch2 = lastSent(s2) as { nonce: string };
+    const ch2 = last_sent(s2) as { nonce: string };
     const n2 = Uint8Array.from(Buffer.from(ch2.nonce, "base64url"));
-    await send(a, "c2", { v: 1, type: "authenticate", jti: g2.jti, sig: b64uEncode(popSign(g2.cnfSk, n2, g2.jti)) });
+    await send(a, "c2", { v: 1, type: "authenticate", jti: g2.jti, sig: b64u_encode(pop_sign(g2.cnf_sk, n2, g2.jti)) });
     now += 200_000;
     a.tick();
     expect(s2.closed?.code).toBe(CLOSE_AUTH);
   });
 
-  it("nextDeadlineMs is null when idle, set when work exists", async () => {
-    const core = testCoreKey();
-    const verify = testVerifier(core);
+  it("next_deadline_ms is null when idle, set when work exists", async () => {
+    const core = test_core_key();
+    const verify = test_verifier(core);
     let now = Date.now();
     const a = new RoomState("acct1", "forge1", verify, () => now);
-    expect(a.nextDeadlineMs()).toBeNull();
-    const s = fakeSocket();
-    a.onConnect("c", s);
-    const d = a.nextDeadlineMs();
+    expect(a.next_deadline_ms()).toBeNull();
+    const s = fake_socket();
+    a.on_connect("c", s);
+    const d = a.next_deadline_ms();
     expect(d).toBe(now + 5_000); // hello timeout
     const { g } = await authConn(a, "c2", "client", core);
     void g;
-    expect(a.nextDeadlineMs()).not.toBeNull();
-    a.onClose("c");
-    a.onClose("c2");
+    expect(a.next_deadline_ms()).not.toBeNull();
+    a.on_close("c");
+    a.on_close("c2");
     // Everything gone: idle room needs no alarm.
-    expect(a.nextDeadlineMs()).toBeNull();
+    expect(a.next_deadline_ms()).toBeNull();
   });
 });

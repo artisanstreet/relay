@@ -8,7 +8,7 @@ import { GrantVerificationFailed } from "../../errors.ts";
 export interface VerifiedGrant {
   claims: GrantClaims;
   kid: string;
-  cnfPk: Uint8Array;
+  cnf_pk: Uint8Array;
   scopes: Set<string>;
 }
 
@@ -127,7 +127,7 @@ export const GrantVerifierLive: Layer.Layer<GrantVerifier, never, HttpClient.Htt
         return {
           claims: checked.claims,
           kid: verified.protectedHeader.kid,
-          cnfPk: checked.cnf_pk,
+          cnf_pk: checked.cnf_pk,
           scopes: checked.scopes,
         } satisfies VerifiedGrant;
       });

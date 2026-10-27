@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import { normalizePortalOrigin } from "../cors.ts";
+import { normalize_portal_origin } from "../cors.ts";
 import { RelayMisconfigured } from "../errors.ts";
 
 export interface Env {
@@ -52,7 +52,7 @@ export const parse_env = (env: Env): Effect.Effect<RelayConfig, RelayMisconfigur
       max_ttl_sec,
       revocations_url,
       poll_ms,
-      portal_origin: normalizePortalOrigin(env.RELAY_PORTAL_ORIGIN),
+      portal_origin: normalize_portal_origin(env.RELAY_PORTAL_ORIGIN),
       raw_env: env,
     } satisfies RelayConfig;
   });

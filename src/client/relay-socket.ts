@@ -1,24 +1,24 @@
 import { Cause, Deferred, Effect, Either, Exit, Option, Queue } from "effect";
-import { readServerFrame } from "../schema.ts";
+import { read_server_frame } from "../schema.ts";
 import type { ClientFrame } from "../schema.ts";
-import { b64uDecode, b64uEncode } from "../b64u.ts";
-import { popSign } from "../e2e.ts";
+import { b64u_decode, b64u_encode } from "../b64u.ts";
+import { pop_sign } from "../e2e.ts";
 
 export interface GrantMaterial {
   jwt: string;
   jti: string;
-  cnfSk: Uint8Array; // Ed25519 secret key proving possession of cnf
+  cnf_sk: Uint8Array; // Ed25519 secret key proving possession of cnf
 }
 
 export interface ChannelEvents {
-  onChannelOpened?(channel: string, peer: "forge" | "client"): void;
-  onData?(channel: string, seq: number, body: Uint8Array): void;
-  onChannelClosed?(channel: string, reason: string): void;
-  onPresence?(forgeOnline: boolean, clients: number): void;
-  onError?(code: string, message: string): void;
-  onClose?(code: number, reason: string): void;
+  on_channel_opened?(channel: string, peer: "forge" | "client"): void;
+  on_data?(channel: string, seq: number, body: Uint8Array): void;
+  on_channel_closed?(channel: string, reason: string): void;
+  on_presence?(forgeOnline: boolean, clients: number): void;
+  on_error?(code: string, message: string): void;
+  on_close?(code: number, reason: string): void;
   /** Fired when a cumulative ack slides our send window (pacing signal). */
-  onAck?(channel: string, seq: number): void;
+  on_ack?(channel: string, seq: number): void;
 }
 
 /**
@@ -29,7 +29,7 @@ export interface ChannelEvents {
  */
 export const SEND_WINDOW_FRAMES = 64;
 export const SEND_WINDOW_BYTES = 1_048_576; // 1 MiB
-/** Bounded park queue for sendAcked waiters per channel. */
+/** Bounded park queue for send_acked waiters per channel. */
 export const SEND_QUEUE_MAX = 256;
 
 export type SendStatus = "sent" | "dropped-window-full";
@@ -68,7 +68,7 @@ type SendFailure = SendClosedError | SendTimeoutError | SendQueueFullError;
 /**
  * One in-flight send. Completion is an Effect Deferred (settled on ack,
  * channel loss, or close); the timeout is an Effect Clock deadline covering
- * queue wait + ack wait so the timeoutMs contract holds end to end.
+ * queue wait + ack wait so the timeout_ms contract holds end to end.
  */
 interface TrackedSend {
   /** Exact base64url body as transmitted. `bytes` is its length — the SAME
@@ -80,14 +80,14 @@ interface TrackedSend {
   done: Deferred.Deferred<void, SendFailure>;
 }
 
-function encodeBody(body: Uint8Array): { b64: string; bytes: number } {
-  const b64 = b64uEncode(body);
+function encode_body(body: Uint8Array): { b64: string; bytes: number } {
+  const b64 = b64u_encode(body);
   return { b64, bytes: b64.length };
 }
 
 interface ChannelSendState {
   unacked: TrackedSend[];
-  unackedBytes: number;
+  unacked_bytes: number;
   parked: Queue.Queue<TrackedSend>;
 }
 
@@ -98,22 +98,22 @@ function send(ws: WebSocket, frame: ClientFrame): void {
 /** Shared admission + framing. Subclass per role for clarity. */
 export class RelaySocket {
   protected ws: WebSocket | null = null;
-  private seqByChannel = new Map<string, number>();
-  private sendState = new Map<string, ChannelSendState>();
-  private stateSem = Effect.runSync(Effect.makeSemaphore(1));
+  private seq_by_channel = new Map<string, number>();
+  private send_state = new Map<string, ChannelSendState>();
+  private state_sem = Effect.runSync(Effect.makeSemaphore(1));
 
   constructor(
     protected url: string,
     protected grant: GrantMaterial,
     protected events: ChannelEvents = {},
-    protected wsImpl: typeof WebSocket = WebSocket,
+    protected ws_impl: typeof WebSocket = WebSocket,
   ) {}
 
   connect(): Promise<{ role: string; forgeOnline: boolean }> {
     const self = this;
     type Admission = { role: string; forgeOnline: boolean };
     const program = Effect.async<Admission, Error>((resume) => {
-      const ws = new self.wsImpl(self.url);
+      const ws = new self.ws_impl(self.url);
       self.ws = ws;
       const fail = (e: Error) => resume(Effect.fail(e));
       const cleanup_admission = () => {
@@ -134,13 +134,13 @@ export class RelaySocket {
         fail(e);
       };
       const on_steady = (e2: MessageEvent) => {
-        void self.onMessage(String(e2.data)).catch(() => {});
+        void self.on_message(String(e2.data)).catch(() => {});
       };
       const on_steady_close = (e: Event) => {
         const ce = e as unknown as { code?: number; reason?: string };
-        self.events.onClose?.(ce.code ?? 1000, ce.reason ?? "");
+        self.events.on_close?.(ce.code ?? 1000, ce.reason ?? "");
         self.ws = null;
-        self.failAll(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
+        self.fail_all(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
       };
       const on_error = (e: Event) => {
         const raw: unknown = (e as { message?: unknown }).message ?? e;
@@ -148,20 +148,20 @@ export class RelaySocket {
       };
       const on_close = (e: Event) => {
         const ce = e as unknown as { code?: number; reason?: string };
-        self.events.onClose?.(ce.code ?? 1000, ce.reason ?? "");
+        self.events.on_close?.(ce.code ?? 1000, ce.reason ?? "");
         self.ws = null;
-        self.failAll(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
+        self.fail_all(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
         settle_err(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
       };
       const on_first = (ev: MessageEvent) => {
         Either.getOrElse(
           Either.try({
             try: () => {
-              const frame = readServerFrame(JSON.parse(String(ev.data)));
+              const frame = read_server_frame(JSON.parse(String(ev.data)));
               if (frame.type === "challenge") {
-                const nonce = b64uDecode(frame.nonce);
-                const sig = popSign(self.grant.cnfSk, nonce, self.grant.jti);
-                send(ws, { v: 1, type: "authenticate", jti: self.grant.jti, sig: b64uEncode(sig) });
+                const nonce = b64u_decode(frame.nonce);
+                const sig = pop_sign(self.grant.cnf_sk, nonce, self.grant.jti);
+                send(ws, { v: 1, type: "authenticate", jti: self.grant.jti, sig: b64u_encode(sig) });
                 return;
               }
               if (frame.type === "ready") {
@@ -193,21 +193,21 @@ export class RelaySocket {
     });
   }
 
-  private async onMessage(raw: string): Promise<void> {
+  private async on_message(raw: string): Promise<void> {
     const ws = this.ws;
     if (!ws) return;
-    const frame = readServerFrame(JSON.parse(raw));
+    const frame = read_server_frame(JSON.parse(raw));
     switch (frame.type) {
       case "challenge": {
-        const sig = popSign(this.grant.cnfSk, b64uDecode(frame.nonce), this.grant.jti);
-        send(ws, { v: 1, type: "authenticate", jti: this.grant.jti, sig: b64uEncode(sig) });
+        const sig = pop_sign(this.grant.cnf_sk, b64u_decode(frame.nonce), this.grant.jti);
+        send(ws, { v: 1, type: "authenticate", jti: this.grant.jti, sig: b64u_encode(sig) });
         return;
       }
       case "channel-opened":
-        this.events.onChannelOpened?.(frame.channel, frame.peer);
+        this.events.on_channel_opened?.(frame.channel, frame.peer);
         return;
       case "data":
-        this.events.onData?.(frame.channel, frame.seq, b64uDecode(frame.body));
+        this.events.on_data?.(frame.channel, frame.seq, b64u_decode(frame.body));
         // Transport-level cumulative ack (flow control): the room releases
         // its per-channel window on this. App processing is separate.
         send(ws, { v: 1, type: "ack", channel: frame.channel, seq: frame.seq });
@@ -216,14 +216,14 @@ export class RelaySocket {
         Effect.runSync(this.release_window_effect(frame.channel, frame.seq));
         return;
       case "channel-closed":
-        this.events.onChannelClosed?.(frame.channel, frame.reason);
+        this.events.on_channel_closed?.(frame.channel, frame.reason);
         Effect.runSync(this.fail_channel_effect(frame.channel, new SendClosedError(`channel closed: ${frame.reason}`)));
         return;
       case "presence":
-        this.events.onPresence?.(frame.forge_online, frame.clients);
+        this.events.on_presence?.(frame.forge_online, frame.clients);
         return;
       case "error":
-        this.events.onError?.(frame.code, frame.message);
+        this.events.on_error?.(frame.code, frame.message);
         return;
       case "ping":
         send(ws, { v: 1, type: "pong", t: frame.t });
@@ -243,23 +243,23 @@ export class RelaySocket {
    * Send an opaque E2E body. Transport seq enforced by Relay per direction.
    * Fire-and-forget with window enforcement: returns "dropped-window-full"
    * instead of overflowing the Relay window (caller retries or re-opens).
-   * Prefer sendAcked() when completion matters.
+   * Prefer send_acked() when completion matters.
    */
-  sendOpaque(channel: string, body: Uint8Array): SendStatus {
+  send_opaque(channel: string, body: Uint8Array): SendStatus {
     if (!this.ws) throw new Error("not connected");
     const self = this;
     return Effect.runSync(
-      self.stateSem.withPermits(1)(
+      self.state_sem.withPermits(1)(
         Effect.gen(function* () {
           const st = yield* self.send_state_for(channel);
-          const { b64, bytes } = encodeBody(body);
+          const { b64, bytes } = encode_body(body);
           if (!self.window_has_space(st, bytes)) return "dropped-window-full" as SendStatus;
           // Fire-and-forget: still tracked so the window reflects reality; the
           // waiter is never observed (no completion contract on this path).
           // WARNING (ciphertext lifecycle): a "dropped-window-full" return means
           // the caller sealed bytes that will NEVER be delivered. The E2E session
           // is thereby unusable (fail-closed gap) — re-handshake on a fresh
-          // channel, never retry the ciphertext. Prefer sendAcked()/sendApp().
+          // channel, never retry the ciphertext. Prefer send_acked()/send_app().
           const done = yield* Deferred.make<void, SendFailure>();
           const entry: TrackedSend = { b64, seq: null, bytes, done };
           yield* self.emit_tracked(channel, st, entry);
@@ -276,16 +276,16 @@ export class RelaySocket {
    * transfers larger than the window (e.g. multi-MiB uploads): await each
    * chunk (or a small pipeline) and the Relay window never overflows.
    */
-  sendAcked(channel: string, body: Uint8Array, opts: { timeoutMs?: number } = {}): Promise<void> {
-    const timeoutMs = opts.timeoutMs ?? 30_000;
+  send_acked(channel: string, body: Uint8Array, opts: { timeout_ms?: number } = {}): Promise<void> {
+    const timeout_ms = opts.timeout_ms ?? 30_000;
     const self = this;
-    const program = self.stateSem.withPermits(1)(
+    const program = self.state_sem.withPermits(1)(
       Effect.gen(function* () {
         if (!self.ws) {
           return yield* Effect.fail(new SendClosedError("not connected"));
         }
         const st = yield* self.send_state_for(channel);
-        const { b64, bytes } = encodeBody(body);
+        const { b64, bytes } = encode_body(body);
         const done = yield* Deferred.make<void, SendFailure>();
         const entry: TrackedSend = { b64, seq: null, bytes, done };
         if (self.window_has_space(st, bytes)) {
@@ -299,9 +299,9 @@ export class RelaySocket {
       }),
     ).pipe(
       Effect.flatMap((entry) => {
-        if (!(timeoutMs > 0)) return Deferred.await(entry.done);
+        if (!(timeout_ms > 0)) return Deferred.await(entry.done);
         const deadline = Effect.timeoutFail(Deferred.await(entry.done), {
-          duration: timeoutMs,
+          duration: timeout_ms,
           onTimeout: () => new SendTimeoutError(),
         });
         return Effect.tapError(deadline, (e) =>
@@ -322,40 +322,40 @@ export class RelaySocket {
   }
 
   /** Unacked volume per channel (pacing observability). */
-  pendingCount(channel: string): { frames: number; bytes: number; queued: number } {
-    const st = this.sendState.get(channel);
+  pending_count(channel: string): { frames: number; bytes: number; queued: number } {
+    const st = this.send_state.get(channel);
     if (!st) return { frames: 0, bytes: 0, queued: 0 };
     const queued = Effect.runSync(Queue.size(st.parked));
-    return { frames: st.unacked.length, bytes: st.unackedBytes, queued };
+    return { frames: st.unacked.length, bytes: st.unacked_bytes, queued };
   }
 
   /**
-   * Peek: would `encodedBytes` (base64url body length — see sealedFrameSize
+   * Peek: would `encoded_bytes` (base64url body length — see sealed_frame_size
    * in channel.ts for the exact pre-seal computation) fit the window now?
-   * Pure predicate for throws-before-consume flows (sendApp).
+   * Pure predicate for throws-before-consume flows (send_app).
    */
-  willFit(channel: string, encodedBytes: number): boolean {
-    const st = this.sendState.get(channel);
-    if (!st) return encodedBytes <= SEND_WINDOW_BYTES;
+  will_fit(channel: string, encoded_bytes: number): boolean {
+    const st = this.send_state.get(channel);
+    if (!st) return encoded_bytes <= SEND_WINDOW_BYTES;
     const self = this;
     return Effect.runSync(
-      self.stateSem.withPermits(1)(Effect.sync(() => self.window_has_space(st, encodedBytes))),
+      self.state_sem.withPermits(1)(Effect.sync(() => self.window_has_space(st, encoded_bytes))),
     );
   }
 
   private send_state_for(channel: string): Effect.Effect<ChannelSendState> {
-    const existing = this.sendState.get(channel);
+    const existing = this.send_state.get(channel);
     if (existing) return Effect.succeed(existing);
     const self = this;
     return Effect.map(Queue.bounded<TrackedSend>(SEND_QUEUE_MAX), (parked) => {
-      const st: ChannelSendState = { unacked: [], unackedBytes: 0, parked };
-      self.sendState.set(channel, st);
+      const st: ChannelSendState = { unacked: [], unacked_bytes: 0, parked };
+      self.send_state.set(channel, st);
       return st;
     });
   }
 
   private window_has_space(st: ChannelSendState, bytes: number): boolean {
-    return st.unacked.length < SEND_WINDOW_FRAMES && st.unackedBytes + bytes <= SEND_WINDOW_BYTES;
+    return st.unacked.length < SEND_WINDOW_FRAMES && st.unacked_bytes + bytes <= SEND_WINDOW_BYTES;
   }
 
   /**
@@ -368,11 +368,11 @@ export class RelaySocket {
     if (!ws) {
       return this.drop_tracked(st, entry, new SendClosedError("not connected"));
     }
-    const seq = (this.seqByChannel.get(channel) ?? -1) + 1;
-    this.seqByChannel.set(channel, seq);
+    const seq = (this.seq_by_channel.get(channel) ?? -1) + 1;
+    this.seq_by_channel.set(channel, seq);
     entry.seq = seq;
     st.unacked.push(entry);
-    st.unackedBytes += entry.bytes;
+    st.unacked_bytes += entry.bytes;
     // entry.b64 is the exact string accounted above; never re-encoded.
     return Either.try({
       try: () => send(ws, { v: 1, type: "data", channel, seq, body: entry.b64 }),
@@ -394,7 +394,7 @@ export class RelaySocket {
     const i = st.unacked.indexOf(entry);
     if (i !== -1) {
       st.unacked.splice(i, 1);
-      st.unackedBytes = Math.max(0, st.unackedBytes - entry.bytes);
+      st.unacked_bytes = Math.max(0, st.unacked_bytes - entry.bytes);
       return Deferred.fail(entry.done, as_failure);
     }
     return Effect.flatMap(Queue.takeAll(st.parked), (drained_chunk) => {
@@ -411,20 +411,20 @@ export class RelaySocket {
   /** Slide the send window on a cumulative ack; resolve covered sends. */
   private release_window_effect(channel: string, ackSeq: number): Effect.Effect<void> {
     const self = this;
-    return self.stateSem.withPermits(1)(
+    return self.state_sem.withPermits(1)(
       Effect.gen(function* () {
-        const st = self.sendState.get(channel);
+        const st = self.send_state.get(channel);
         if (!st) return;
         let slid = false;
         while (st.unacked.length > 0 && (st.unacked[0]?.seq ?? Infinity) <= ackSeq) {
           const done = st.unacked.shift();
           if (!done) break;
-          st.unackedBytes = Math.max(0, st.unackedBytes - done.bytes);
+          st.unacked_bytes = Math.max(0, st.unacked_bytes - done.bytes);
           yield* Deferred.succeed(done.done, undefined);
           slid = true;
         }
         if (slid) {
-          self.events.onAck?.(channel, ackSeq);
+          self.events.on_ack?.(channel, ackSeq);
           yield* self.drain_queue(channel, st);
         }
       }),
@@ -456,9 +456,9 @@ export class RelaySocket {
   /** Reject everything outstanding for a channel (close/loss). */
   private fail_channel_effect(channel: string, e: SendClosedError | SendTimeoutError): Effect.Effect<void> {
     const self = this;
-    return self.stateSem.withPermits(1)(
+    return self.state_sem.withPermits(1)(
       Effect.gen(function* () {
-        const st = self.sendState.get(channel);
+        const st = self.send_state.get(channel);
         if (!st) return;
         for (const u of st.unacked.splice(0, st.unacked.length)) {
           yield* Deferred.fail(u.done, e);
@@ -467,22 +467,22 @@ export class RelaySocket {
         for (const q of queued) {
           yield* Deferred.fail(q.done, e);
         }
-        st.unackedBytes = 0;
+        st.unacked_bytes = 0;
       }),
     );
   }
 
   /** Reject everything outstanding on every channel (socket gone). */
-  private failAll(e: Error): void {
+  private fail_all(e: Error): void {
     const self = this;
     const as_failure = e instanceof SendClosedError || e instanceof SendTimeoutError
       ? e
       : new SendClosedError(e.message);
     Effect.runSync(
-      self.stateSem.withPermits(1)(
+      self.state_sem.withPermits(1)(
         Effect.gen(function* () {
-          for (const channel of [...self.sendState.keys()]) {
-            const st = self.sendState.get(channel);
+          for (const channel of [...self.send_state.keys()]) {
+            const st = self.send_state.get(channel);
             if (!st) continue;
             for (const u of st.unacked.splice(0, st.unacked.length)) {
               yield* Deferred.fail(u.done, as_failure);
@@ -491,14 +491,14 @@ export class RelaySocket {
             for (const q of queued) {
               yield* Deferred.fail(q.done, as_failure);
             }
-            st.unackedBytes = 0;
+            st.unacked_bytes = 0;
           }
         }),
       ),
     );
   }
 
-  private failChannel(channel: string, e: Error): void {
+  private fail_channel(channel: string, e: Error): void {
     Effect.runSync(
       this.fail_channel_effect(
         channel,
@@ -507,7 +507,7 @@ export class RelaySocket {
     );
   }
 
-  closeChannel(channel: string, reason?: string): void {
+  close_channel(channel: string, reason?: string): void {
     const ws = this.ws;
     if (!ws) return;
     send(ws, { v: 1, type: "close", channel, ...(reason ? { reason } : {}) });
@@ -516,7 +516,7 @@ export class RelaySocket {
   close(code = 1000, reason = "bye"): void {
     void Either.try({ try: () => this.ws?.close(code, reason), catch: () => undefined });
     this.ws = null;
-    this.failAll(new SendClosedError("connection closed"));
+    this.fail_all(new SendClosedError("connection closed"));
   }
 }
 

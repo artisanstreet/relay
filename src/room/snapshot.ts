@@ -1,5 +1,5 @@
 import { Either } from "effect";
-import { b64uDecode } from "../b64u.ts";
+import { b64u_decode } from "../b64u.ts";
 import type { VerifiedGrant } from "../services/grants/verifier.ts";
 import { filter_known_scopes } from "./revocation.ts";
 import type { SnapshotConn } from "./types.ts";
@@ -13,7 +13,7 @@ export function restored_grant(
   const scope = filter_known_scopes(c.scope);
   if (!scope.includes("relay:connect")) return null;
   const cnf_pk = Either.try({
-    try: () => b64uDecode(c.cnfX),
+    try: () => b64u_decode(c.cnfX),
     catch: () => new Uint8Array(32),
   }).pipe(
     Either.map((b) => (b.length !== 32 ? new Uint8Array(32) : b)),
@@ -36,7 +36,7 @@ export function restored_grant(
       cnf: { jwk: { kty: "OKP", crv: "Ed25519", x: c.cnfX } },
     },
     kid: c.kid,
-    cnfPk: cnf_pk,
+    cnf_pk: cnf_pk,
     scopes: new Set<string>(scope),
   };
 }

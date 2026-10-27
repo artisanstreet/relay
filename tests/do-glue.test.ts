@@ -11,9 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MachineRoom } from "../src/index.ts";
 import type { Env } from "../src/index.ts";
 import type { RoomSnapshot } from "../src/room.ts";
-import { mintGrant, testCoreKey, TEST_AUD, TEST_ISS, TEST_KID } from "./helpers.ts";
-import { popSign } from "../src/e2e.ts";
-import { b64uEncode } from "../src/jwt.ts";
+import { mint_grant, test_core_key, TEST_AUD, TEST_ISS, TEST_KID } from "./helpers.ts";
+import { pop_sign } from "../src/e2e.ts";
+import { b64u_encode } from "../src/jwt.ts";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -117,7 +117,7 @@ class FakeState {
   }
 }
 
-const core = testCoreKey();
+const core = test_core_key();
 const JWKS = { keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID, alg: "EdDSA", use: "sig" }] };
 
 function env(): Env {
@@ -180,13 +180,13 @@ async function authedServer(
   role: "forge" | "client",
   grantOpts = {},
 ): Promise<{ jti: string }> {
-  const g = await mintGrant(core, { role, account: "acct1", machine: "forge1", ...grantOpts });
+  const g = await mint_grant(core, { role, account: "acct1", machine: "forge1", ...grantOpts });
   await do_.webSocketMessage(asWs(server), JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
   const ch = frames(server).find((f) => (f as { type: string }).type === "challenge") as { nonce: string };
   if (!ch) throw new Error(`no challenge; got ${JSON.stringify(frames(server))}`);
   const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
   await do_.webSocketMessage(    asWs(server),
-    JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) }),
+    JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) }),
   );
   const ready = frames(server).some((f) => (f as { type: string }).type === "ready");
   if (!ready) throw new Error(`no ready; got ${JSON.stringify(frames(server))}`);
@@ -232,8 +232,8 @@ describe("DO hibernation glue", () => {
     await b.webSocketMessage(      asWs(clientSock),
       JSON.stringify({ v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" }),
     );
-    const atForge = frames(forgeSock).filter((f) => (f as { type: string }).type === "data");
-    expect(atForge.length).toBe(1);
+    const at_forge = frames(forgeSock).filter((f) => (f as { type: string }).type === "data");
+    expect(at_forge.length).toBe(1);
     // Old socket speaks without re-authenticating.
     await b.webSocketMessage(      asWs(forgeSock),
       JSON.stringify({ v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" }),

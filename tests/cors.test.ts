@@ -10,13 +10,13 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
-import { mintGrant, testCoreKey, TEST_AUD, TEST_ISS, TEST_KID } from "./helpers.ts";
+import { mint_grant, test_core_key, TEST_AUD, TEST_ISS, TEST_KID } from "./helpers.ts";
 import {
-  corsPreflight,
-  corsResponseHeaders,
-  isAllowedOrigin,
-  normalizePortalOrigin,
-  wsOriginGate,
+  cors_preflight,
+  cors_response_headers,
+  is_allowed_origin,
+  normalize_portal_origin,
+  ws_origin_gate,
 } from "../src/cors.ts";
 
 const PORTAL = "https://portal.test:8443";
@@ -24,31 +24,31 @@ const EVIL = "https://evil.test";
 
 describe("portal origin normalization", () => {
   it("accepts exact https origins, normalizing case and default ports", () => {
-    expect(normalizePortalOrigin("https://portal.test:8443")).toBe("https://portal.test:8443");
-    expect(normalizePortalOrigin("https://portal.test:8443/")).toBe("https://portal.test:8443");
-    expect(normalizePortalOrigin("HTTPS://Portal.TEST:443")).toBe("https://portal.test");
-    expect(normalizePortalOrigin("http://127.0.0.1:8787")).toBe("http://127.0.0.1:8787");
-    expect(normalizePortalOrigin("http://127.0.0.1:80")).toBe("http://127.0.0.1");
+    expect(normalize_portal_origin("https://portal.test:8443")).toBe("https://portal.test:8443");
+    expect(normalize_portal_origin("https://portal.test:8443/")).toBe("https://portal.test:8443");
+    expect(normalize_portal_origin("HTTPS://Portal.TEST:443")).toBe("https://portal.test");
+    expect(normalize_portal_origin("http://127.0.0.1:8787")).toBe("http://127.0.0.1:8787");
+    expect(normalize_portal_origin("http://127.0.0.1:80")).toBe("http://127.0.0.1");
   });
 
   it("rejects wildcards, paths, credentials, non-http schemes, empties", () => {
-    expect(normalizePortalOrigin(undefined)).toBeNull();
-    expect(normalizePortalOrigin("")).toBeNull();
-    expect(normalizePortalOrigin("https://*.test")).toBeNull();
-    expect(normalizePortalOrigin("https://portal.test/app")).toBeNull();
-    expect(normalizePortalOrigin("https://user:pass@portal.test")).toBeNull();
-    expect(normalizePortalOrigin("wss://portal.test")).toBeNull();
-    expect(normalizePortalOrigin("portal.test")).toBeNull();
-    expect(normalizePortalOrigin("https://portal.test?q=1")).toBeNull();
+    expect(normalize_portal_origin(undefined)).toBeNull();
+    expect(normalize_portal_origin("")).toBeNull();
+    expect(normalize_portal_origin("https://*.test")).toBeNull();
+    expect(normalize_portal_origin("https://portal.test/app")).toBeNull();
+    expect(normalize_portal_origin("https://user:pass@portal.test")).toBeNull();
+    expect(normalize_portal_origin("wss://portal.test")).toBeNull();
+    expect(normalize_portal_origin("portal.test")).toBeNull();
+    expect(normalize_portal_origin("https://portal.test?q=1")).toBeNull();
   });
 
   it("matches exactly after normalization", () => {
-    expect(isAllowedOrigin("https://portal.test:8443", PORTAL)).toBe(true);
-    expect(isAllowedOrigin("https://portal.test:8443/", PORTAL)).toBe(true);
-    expect(isAllowedOrigin(EVIL, PORTAL)).toBe(false);
-    expect(isAllowedOrigin("https://portal.test.evil.test", PORTAL)).toBe(false);
-    expect(isAllowedOrigin(null, PORTAL)).toBe(false);
-    expect(isAllowedOrigin("https://portal.test:8443", null)).toBe(false);
+    expect(is_allowed_origin("https://portal.test:8443", PORTAL)).toBe(true);
+    expect(is_allowed_origin("https://portal.test:8443/", PORTAL)).toBe(true);
+    expect(is_allowed_origin(EVIL, PORTAL)).toBe(false);
+    expect(is_allowed_origin("https://portal.test.evil.test", PORTAL)).toBe(false);
+    expect(is_allowed_origin(null, PORTAL)).toBe(false);
+    expect(is_allowed_origin("https://portal.test:8443", null)).toBe(false);
   });
 });
 
@@ -65,7 +65,7 @@ describe("preflight + response headers (pure)", () => {
     });
 
   it("answers allowed preflights with a tight allow-list", () => {
-    const res = corsPreflight(preflightReq(PORTAL), /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, PORTAL);
+    const res = cors_preflight(preflightReq(PORTAL), /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, PORTAL);
     expect(res).not.toBeNull();
     expect(res!.status).toBe(204);
     expect(res!.headers.get("Access-Control-Allow-Origin")).toBe(PORTAL);
@@ -76,24 +76,24 @@ describe("preflight + response headers (pure)", () => {
   });
 
   it("refuses disallowed origins, wrong methods, and excess headers", () => {
-    expect(corsPreflight(preflightReq(EVIL), /./, PORTAL)).toBeNull();
-    expect(corsPreflight(preflightReq(null), /./, PORTAL)).toBeNull();
-    expect(corsPreflight(preflightReq(PORTAL), /./, null)).toBeNull();
-    expect(corsPreflight(preflightReq(PORTAL, { "Access-Control-Request-Method": "DELETE" }), /./, PORTAL)).toBeNull();
+    expect(cors_preflight(preflightReq(EVIL), /./, PORTAL)).toBeNull();
+    expect(cors_preflight(preflightReq(null), /./, PORTAL)).toBeNull();
+    expect(cors_preflight(preflightReq(PORTAL), /./, null)).toBeNull();
+    expect(cors_preflight(preflightReq(PORTAL, { "Access-Control-Request-Method": "DELETE" }), /./, PORTAL)).toBeNull();
     expect(
-      corsPreflight(preflightReq(PORTAL, { "Access-Control-Request-Headers": "authorization, x-evil" }), /./, PORTAL),
+      cors_preflight(preflightReq(PORTAL, { "Access-Control-Request-Headers": "authorization, x-evil" }), /./, PORTAL),
     ).toBeNull();
-    expect(corsPreflight(preflightReq(PORTAL), /^\/other/, PORTAL)).toBeNull();
+    expect(cors_preflight(preflightReq(PORTAL), /^\/other/, PORTAL)).toBeNull();
   });
 
   it("reflects only the allowed origin on actual responses", () => {
     const ok = new Request("https://relay.invalid/v1/presence/a/m", { headers: { Origin: PORTAL } });
-    const h = corsResponseHeaders(ok, PORTAL);
+    const h = cors_response_headers(ok, PORTAL);
     expect(h?.get("Access-Control-Allow-Origin")).toBe(PORTAL);
     const evil = new Request("https://relay.invalid/v1/presence/a/m", { headers: { Origin: EVIL } });
-    expect(corsResponseHeaders(evil, PORTAL)).toBeNull();
+    expect(cors_response_headers(evil, PORTAL)).toBeNull();
     const none = new Request("https://relay.invalid/v1/presence/a/m");
-    expect(corsResponseHeaders(none, PORTAL)).toBeNull();
+    expect(cors_response_headers(none, PORTAL)).toBeNull();
   });
 });
 
@@ -107,10 +107,10 @@ describe("websocket origin gate (pure)", () => {
     });
 
   it("lets matching and absent origins through, refuses mismatches", () => {
-    expect(wsOriginGate(upgrade(PORTAL), PORTAL)).toBeNull();
-    expect(wsOriginGate(upgrade(null), PORTAL)).toBeNull();
-    expect(wsOriginGate(upgrade("https://portal.test:8443"), null)).toBeNull();
-    const blocked = wsOriginGate(upgrade(EVIL), PORTAL);
+    expect(ws_origin_gate(upgrade(PORTAL), PORTAL)).toBeNull();
+    expect(ws_origin_gate(upgrade(null), PORTAL)).toBeNull();
+    expect(ws_origin_gate(upgrade("https://portal.test:8443"), null)).toBeNull();
+    const blocked = ws_origin_gate(upgrade(EVIL), PORTAL);
     expect(blocked?.status).toBe(403);
   });
 });
@@ -122,7 +122,7 @@ describe("websocket origin gate (pure)", () => {
 let mf: Miniflare;
 let jwksServer: ReturnType<typeof createServer>;
 let base = "";
-const core = testCoreKey();
+const core = test_core_key();
 const PORTAL_HTTP = "http://127.0.0.1:18091";
 
 beforeAll(async () => {
@@ -203,7 +203,7 @@ describe("worker CORS behavior (miniflare)", () => {
   });
 
   it("reflects the portal origin on authed presence reads only", async () => {
-    const g = await mintGrant(core, {});
+    const g = await mint_grant(core, {});
     const good = await dispatch("/v1/presence/acct1/forge1", {
       headers: { Origin: PORTAL_HTTP, Authorization: `Bearer ${g.jwt}` },
     });

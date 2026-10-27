@@ -12,18 +12,18 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createGrantVerifier } from "../src/jwt.ts";
-import { parseRevocationsResponse } from "../src/revocations.ts";
+import { create_grant_verifier } from "../src/jwt.ts";
+import { parse_revocations_response } from "../src/revocations.ts";
 import { RoomState } from "../src/room.ts";
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { hexToBytes } from "@noble/hashes/utils.js";
-import { mintGrant, stubFetch, testCoreKey, TEST_KID, makeRoom, send, fakeSocket } from "./helpers.ts";
+import { hexToBytes as hex_to_bytes } from "@noble/hashes/utils.js";
+import { mint_grant, stub_fetch, test_core_key, TEST_KID, make_room, send, fake_socket } from "./helpers.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FIXTURE_PATH = join(root, "contracts", "fixtures", "core-v1.json");
 
-const CORE = testCoreKey(0x1d);
-const CNF_SK = hexToBytes("ab".repeat(32));
+const CORE = test_core_key(0x1d);
+const CNF_SK = hex_to_bytes("ab".repeat(32));
 const NOW_SEC = 2_000_000_000;
 const ISS = "https://ast.example.invalid";
 const AUD = "ast-relay";
@@ -51,15 +51,15 @@ interface CoreFixture {
   expect: { sub: string; mid: string; role: string; scope: string[]; nowSec: number };
 }
 
-async function buildFixture(): Promise<CoreFixture> {
-  const cnfPk = ed25519.getPublicKey(CNF_SK);
-  const { jwt } = await mintGrant(CORE, {
+async function build_fixture(): Promise<CoreFixture> {
+  const cnf_pk = ed25519.getPublicKey(CNF_SK);
+  const { jwt } = await mint_grant(CORE, {
     iss: ISS,
     account: ACCT,
     machine: MACHINE,
     role: "client",
     scope: ["relay:connect"],
-    cnfSk: CNF_SK,
+    cnf_sk: CNF_SK,
     iat: NOW_SEC,
     nbf: NOW_SEC,
     exp: NOW_SEC + 120,
@@ -95,7 +95,7 @@ async function buildFixture(): Promise<CoreFixture> {
 
 describe("core v1 contract fixture", () => {
   it("matches committed bytes (or regenerates with UPDATE_CORE_FIXTURE=1)", async () => {
-    const built = await buildFixture();
+    const built = await build_fixture();
     if (process.env["UPDATE_CORE_FIXTURE"] === "1") {
       mkdirSync(dirname(FIXTURE_PATH), { recursive: true });
       writeFileSync(FIXTURE_PATH, JSON.stringify(built, null, 2) + "\n");
@@ -106,9 +106,9 @@ describe("core v1 contract fixture", () => {
 
   it("grant verifies against the fixture JWKS with Core claim names", async () => {
     const fx = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as CoreFixture;
-    const verify = createGrantVerifier(
-      { jwksUrl: "https://core.invalid/jwks", expectedIss: ISS, expectedAud: AUD, maxTtlSec: 300 },
-      stubFetch(fx.jwks),
+    const verify = create_grant_verifier(
+      { jwks_url: "https://core.invalid/jwks", expected_iss: ISS, expected_aud: AUD, max_ttl_sec: 300 },
+      stub_fetch(fx.jwks),
     );
     const g = await verify(fx.grantJwt, fx.expect.nowSec);
     expect(g.claims.sub).toBe(fx.expect.sub);
@@ -119,23 +119,23 @@ describe("core v1 contract fixture", () => {
 
   it("fixture revocation list parses to enforcement inputs (unknown fields ignored)", async () => {
     const fx = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as CoreFixture;
-    const list = parseRevocationsResponse(fx.revocations);
+    const list = parse_revocations_response(fx.revocations);
     expect(list.machines).toEqual([fx.expect.mid]);
     expect(list.keys).toEqual([]);
   });
 
   it("fixture machine revocation rejects hello in a matching room", async () => {
     const fx = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as CoreFixture;
-    const verify = createGrantVerifier(
-      { jwksUrl: "https://core.invalid/jwks", expectedIss: ISS, expectedAud: AUD, maxTtlSec: 300 },
-      stubFetch(fx.jwks),
+    const verify = create_grant_verifier(
+      { jwks_url: "https://core.invalid/jwks", expected_iss: ISS, expected_aud: AUD, max_ttl_sec: 300 },
+      stub_fetch(fx.jwks),
     );
     // Room clock must fall inside the fixture grant window.
-    const h = makeRoom(verify, fx.expect.sub, fx.expect.mid, fx.expect.nowSec * 1000);
-    const list = parseRevocationsResponse(fx.revocations);
-    h.room.setRevocations(list.machines, list.keys);
-    const s = fakeSocket();
-    h.room.onConnect("c", s);
+    const h = make_room(verify, fx.expect.sub, fx.expect.mid, fx.expect.nowSec * 1000);
+    const list = parse_revocations_response(fx.revocations);
+    h.room.set_revocations(list.machines, list.keys);
+    const s = fake_socket();
+    h.room.on_connect("c", s);
     await send(h.room, "c", { v: 1, type: "hello", grant: fx.grantJwt });
     expect(s.closed?.code).toBe(4002);
   });

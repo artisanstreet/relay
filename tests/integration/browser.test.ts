@@ -23,9 +23,9 @@ import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { setupBrowserHarness, type BrowserHarness } from "./harness.ts";
 import { EditorLink, SecureChannel } from "../../src/client.ts";
 import type { GrantMaterial } from "../../src/client.ts";
-import { staticKeypairFromSecret } from "../../src/channel.ts";
+import { static_keypair_from_secret } from "../../src/channel.ts";
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { randomBytes } from "@noble/hashes/utils.js";
+import { randomBytes as random_bytes } from "@noble/hashes/utils.js";
 import { api } from "../../../core/tests/helpers/http.ts";
 
 function findChromium(): string | null {
@@ -121,7 +121,7 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     await tab1.fill("#signin-email", email);
     await tab1.click("form button[type=submit]");
     await tab1.waitForSelector("#signin-progress:not([hidden])", { timeout: 30_000 });
-    const token = h.rig.tokenForEmail(email);
+    const token = h.rig.token_for_email(email);
     const tab2 = await ctx.newPage();
     await tab2.goto(`${h.portalBase}/v1/auth/magic/confirm?token=${token}`);
     await tab2.waitForURL(/#\/approve\?token=/, { timeout: 30_000 });
@@ -153,7 +153,7 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     await tab1.fill("#signin-email", email);
     await tab1.click("form button[type=submit]");
     await tab1.waitForSelector("#signin-progress:not([hidden])", { timeout: 30_000 });
-    const token = h.rig.tokenForEmail(email);
+    const token = h.rig.token_for_email(email);
     const tab2 = await ctx.newPage();
     await tab2.goto(`${h.portalBase}/v1/auth/magic/confirm?token=${token}`);
     await tab2.waitForURL(/#\/approve\?token=/, { timeout: 30_000 });
@@ -175,8 +175,8 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     // proves the block is CORS, not auth. Accounts stay isolated so the
     // grant must belong to the owning account.
     const { ed25519: ed2 } = await import("@noble/curves/ed25519.js");
-    const cnfSk = ed2.utils.randomSecretKey();
-    const cnfX = Buffer.from(ed2.getPublicKey(cnfSk)).toString("base64url");
+    const cnf_sk = ed2.utils.randomSecretKey();
+    const cnfX = Buffer.from(ed2.getPublicKey(cnf_sk)).toString("base64url");
     const eg = await api(h.rig.app, "POST", "/v1/grants/issue", {
       headers: { cookie: h.sessionCookie, origin: "http://localhost" },
       rawBody: JSON.stringify({
@@ -278,43 +278,43 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
       rawBody: eb,
     });
     expect(eg.status).toBe(200);
-    const editorJwt = (eg.json as { token: string }).token;
-    const editorJti = JSON.parse(Buffer.from(editorJwt.split(".")[1] as string, "base64url").toString()).jti as string;
+    const editor_jwt = (eg.json as { token: string }).token;
+    const editorJti = JSON.parse(Buffer.from(editor_jwt.split(".")[1] as string, "base64url").toString()).jti as string;
 
     const me = await api(h.rig.app, "GET", "/v1/machines", {
       headers: { cookie, origin: "http://localhost" },
     });
     expect(me.status).toBe(200);
     const machines = (me.json as { machines?: { id: string; publicKey: { x: string } }[] }).machines ?? [];
-    const forgeCnf = Buffer.from((machines.find((m) => m.id === h.machineId)?.publicKey.x ?? "") as string, "base64url");
-    expect(forgeCnf.length).toBe(32);
+    const forge_cnf = Buffer.from((machines.find((m) => m.id === h.machineId)?.publicKey.x ?? "") as string, "base64url");
+    expect(forge_cnf.length).toBe(32);
 
     const { EditorLink, SecureChannel } = await import("../../src/client.ts");
-    const { staticKeypairFromSecret } = await import("../../src/channel.ts");
-    const { randomBytes } = await import("@noble/hashes/utils.js");
+    const { static_keypair_from_secret } = await import("../../src/channel.ts");
+    const { randomBytes: random_bytes } = await import("@noble/hashes/utils.js");
     const inbox: Uint8Array[] = [];
     const link = new EditorLink(
       `${h.relayWsBase}/v1/route/${h.accountId}/${h.machineId}`,
-      { jwt: editorJwt, jti: editorJti, cnfSk: editorSk },
-      { onData: (_c, _s, body) => inbox.push(body) },
+      { jwt: editor_jwt, jti: editorJti, cnf_sk: editorSk },
+      { on_data: (_c, _s, body) => inbox.push(body) },
       WebSocket as unknown as typeof globalThis.WebSocket,
     );
     try {
       await link.connect();
       const ctx = { account: h.accountId, machine: h.machineId, channel: "interop-stream" };
-      const ch = SecureChannel.initiate(staticKeypairFromSecret(randomBytes(32)), {
-        cnfSignKey: editorSk,
-        expectedForgeCnf: new Uint8Array(forgeCnf),
-        ownGrantJwt: editorJwt,
+      const ch = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+        cnf_sign_key: editorSk,
+        expected_forge_cnf: new Uint8Array(forge_cnf),
+        own_grant_jwt: editor_jwt,
         ctx,
       });
       const pump = (): void => {
-        for (const b of ch.pumpOutbound()) link.sendOpaque(ctx.channel, b);
+        for (const b of ch.pump_outbound()) link.send_opaque(ctx.channel, b);
       };
       const takeApp = (): Uint8Array[] => {
         const out: Uint8Array[] = [];
         for (const raw of inbox.splice(0, inbox.length)) {
-          const app = ch.handleIncoming(raw);
+          const app = ch.handle_incoming(raw);
           if (app) out.push(app);
         }
         return out;
@@ -322,16 +322,16 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
       link.open(ctx.channel);
       pump();
       const deadline = Date.now() + 60_000;
-      while (!ch.isOpen() && Date.now() < deadline) {
+      while (!ch.is_open() && Date.now() < deadline) {
         pump();
         takeApp();
         await new Promise((r) => setTimeout(r, 25));
       }
-      expect(ch.isOpen(), "Noise channel open").toBe(true);
+      expect(ch.is_open(), "Noise channel open").toBe(true);
 
       const pendingEvents: unknown[] = [];
       const callById = async (obj: { id: string } & Record<string, unknown>, label: string): Promise<unknown> => {
-        ch.queueApp(JSON.stringify(obj));
+        ch.queue_app(JSON.stringify(obj));
         pump();
         const dl = Date.now() + 60_000;
         const backlog: unknown[] = [];

@@ -9,14 +9,14 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
-import { mintGrant, testCoreKey, TEST_AUD, TEST_ISS, TEST_KID } from "./helpers.ts";
-import { popSign } from "../src/e2e.ts";
-import { b64uEncode } from "../src/jwt.ts";
+import { mint_grant, test_core_key, TEST_AUD, TEST_ISS, TEST_KID } from "./helpers.ts";
+import { pop_sign } from "../src/e2e.ts";
+import { b64u_encode } from "../src/jwt.ts";
 
 let mf: Miniflare;
 let jwksServer: ReturnType<typeof createServer>;
 let base = "";
-const core = testCoreKey();
+const core = test_core_key();
 // Mutable Core stub state for the revocation poll test (EXACT Core wire
 // shape: camelCase revokedMachineIds/revokedKeyIds/asOf).
 const stubRevocations: { revokedMachineIds: string[]; revokedKeyIds: string[]; asOf: string } = {
@@ -101,7 +101,7 @@ function last(c: WsClient): unknown {
   return JSON.parse(c.received[c.received.length - 1]?.data ?? "null");
 }
 
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
+async function wait_for(cond: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 8000;
   for (;;) {
     if (cond()) return;
@@ -111,13 +111,13 @@ async function waitFor(cond: () => boolean, label: string): Promise<void> {
 }
 
 async function admit(c: WsClient, role: "forge" | "client", grantOpts = {}) {
-  const g = await mintGrant(core, { role, account: "acct1", machine: "forge1", ...grantOpts });
+  const g = await mint_grant(core, { role, account: "acct1", machine: "forge1", ...grantOpts });
   c.ws.send(JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
-  await waitFor(() => c.received.some((m) => JSON.parse(m.data).type === "challenge"), "challenge");
+  await wait_for(() => c.received.some((m) => JSON.parse(m.data).type === "challenge"), "challenge");
   const ch = c.received.map((m) => JSON.parse(m.data)).find((f) => f.type === "challenge") as { nonce: string };
   const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
-  c.ws.send(JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) }));
-  await waitFor(() => c.received.some((m) => JSON.parse(m.data).type === "ready"), "ready");
+  c.ws.send(JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) }));
+  await wait_for(() => c.received.some((m) => JSON.parse(m.data).type === "ready"), "ready");
   return g;
 }
 
@@ -131,12 +131,12 @@ describe("worker stack (miniflare)", () => {
   it("presence requires a same-room bearer grant", async () => {
     const anon = await fetch(`${base}/v1/presence/acct1/forge1`);
     expect(anon.status).toBe(401);
-    const other = await mintGrant(core, { account: "acct-evil", machine: "forge1" });
+    const other = await mint_grant(core, { account: "acct-evil", machine: "forge1" });
     const cross = await fetch(`${base}/v1/presence/acct1/forge1`, {
       headers: { Authorization: `Bearer ${other.jwt}` },
     });
     expect(cross.status).toBe(403);
-    const ok = await mintGrant(core, {});
+    const ok = await mint_grant(core, {});
     const good = await fetch(`${base}/v1/presence/acct1/forge1`, {
       headers: { Authorization: `Bearer ${ok.jwt}` },
     });
@@ -151,10 +151,10 @@ describe("worker stack (miniflare)", () => {
     await admit(f, "forge", { scope: ["relay:connect", "forge:execute", "machine:sync"] });
     await admit(c, "client");
     c.ws.send(JSON.stringify({ v: 1, type: "open", channel: "ws-ch" }));
-    await waitFor(() => f.received.some((m) => JSON.parse(m.data).type === "channel-opened"), "channel-opened");
+    await wait_for(() => f.received.some((m) => JSON.parse(m.data).type === "channel-opened"), "channel-opened");
     const body = Buffer.from("opaque-bytes").toString("base64url");
     c.ws.send(JSON.stringify({ v: 1, type: "data", channel: "ws-ch", seq: 0, body }));
-    await waitFor(
+    await wait_for(
       () => f.received.some((m) => { const f2 = JSON.parse(m.data); return f2.type === "data" && f2.body === body; }),
       "data routed",
     );
@@ -166,9 +166,9 @@ describe("worker stack (miniflare)", () => {
 
   it("rejects cross-room grants with a 4403 close", async () => {
     const c = await connect();
-    const g = await mintGrant(core, { machine: "other-forge" });
+    const g = await mint_grant(core, { machine: "other-forge" });
     c.ws.send(JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
-    await waitFor(() => c.closed !== null, "close");
+    await wait_for(() => c.closed !== null, "close");
     expect(c.closed?.code).toBe(4403);
   });
 
@@ -178,7 +178,7 @@ describe("worker stack (miniflare)", () => {
     await admit(c, "client", { iat, exp: iat + 5 });
     await new Promise((r) => setTimeout(r, 6000));
     c.ws.send(JSON.stringify({ v: 1, type: "pong", t: Date.now() }));
-    await waitFor(() => c.closed !== null, "expiry close");
+    await wait_for(() => c.closed !== null, "expiry close");
     expect(c.closed?.code).toBe(4401);
   });
 
@@ -186,13 +186,13 @@ describe("worker stack (miniflare)", () => {
     const c = await connect();
     const g = await admit(c, "client");
     // Revoke by cnf key using Core's exact field names.
-    stubRevocations.revokedKeyIds = [Buffer.from(g.cnfPk).toString("base64url")];
-    await waitFor(() => c.closed !== null, "revocation close");
+    stubRevocations.revokedKeyIds = [Buffer.from(g.cnf_pk).toString("base64url")];
+    await wait_for(() => c.closed !== null, "revocation close");
     expect(c.closed?.code).toBe(4002);
     // Re-entry with the same (now revoked) key is rejected at hello.
     const c2 = await connect();
     c2.ws.send(JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
-    await waitFor(() => c2.closed !== null, "revoked re-entry");
+    await wait_for(() => c2.closed !== null, "revoked re-entry");
     expect(c2.closed?.code).toBe(4002);
     stubRevocations.revokedKeyIds = [];
   }, 60_000);
@@ -203,11 +203,11 @@ describe("worker stack (miniflare)", () => {
     await admit(f, "forge", { scope: ["relay:connect"] });
     await admit(c, "client");
     c.ws.send(JSON.stringify({ v: 1, type: "open", channel: "flood" }));
-    await waitFor(() => c.received.some((m) => JSON.parse(m.data).type === "channel-opened"), "open");
+    await wait_for(() => c.received.some((m) => JSON.parse(m.data).type === "channel-opened"), "open");
     for (let i = 0; i < 70; i++) {
       c.ws.send(JSON.stringify({ v: 1, type: "data", channel: "flood", seq: i, body: "eA" }));
     }
-    await waitFor(
+    await wait_for(
       () => c.received.some((m) => { const f2 = JSON.parse(m.data); return f2.type === "error" && f2.code === "backpressure"; }),
       "backpressure",
     );

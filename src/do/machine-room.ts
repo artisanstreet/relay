@@ -3,7 +3,7 @@ import { FetchHttpClient } from "@effect/platform";
 import { RoomState } from "../room/state.ts";
 import type { RoomSocket, VerifyGrant } from "../room/state.ts";
 import { RelayEnv, parse_env, type Env } from "../config/relay.ts";
-import { createGrantVerifier } from "../jwt.ts";
+import { create_grant_verifier } from "../jwt.ts";
 import { RevocationClient, RevocationClientLive } from "../services/revocations.ts";
 import { make_room_store } from "./room-store.ts";
 import type { RoomStoreApi } from "./room-store.ts";
@@ -109,11 +109,11 @@ export class MachineRoom implements DurableObject {
         Layer.succeed(RelayEnv, acquired.cfg),
       ),
     );
-    this.verify_fn = createGrantVerifier({
-      jwksUrl: acquired.cfg.jwks_url,
-      expectedIss: acquired.cfg.core_iss,
-      expectedAud: acquired.cfg.relay_aud,
-      maxTtlSec: acquired.cfg.max_ttl_sec,
+    this.verify_fn = create_grant_verifier({
+      jwks_url: acquired.cfg.jwks_url,
+      expected_iss: acquired.cfg.core_iss,
+      expected_aud: acquired.cfg.relay_aud,
+      max_ttl_sec: acquired.cfg.max_ttl_sec,
     });
     this.store = Effect.runSync(make_room_store(do_state, this.verify_fn, () => Date.now()));
   }
@@ -162,7 +162,7 @@ export class MachineRoom implements DurableObject {
           close: (c?: number, r?: string) => (server as unknown as WebSocket).close(c, r),
         };
         const current = yield* store.get_room();
-        current?.onConnect(conn, adapter);
+        current?.on_connect(conn, adapter);
         run_background(do_state, runtime, flush_shared(store, do_state));
         run_background(do_state, runtime, refresh_shared(store, last_ref));
         yield* schedule_shared(store, last_ref, poll_ms, do_state);
@@ -214,14 +214,14 @@ export class MachineRoom implements DurableObject {
         yield* close_quietly(ws, 4401, "gone");
         return;
       }
-      if (!current.hasConn(att.conn)) {
+      if (!current.has_conn(att.conn)) {
         const adapter = adapter_for(live, att.conn) ?? {
           send: (d: string) => ws.send(d),
           close: (c?: number, r?: string) => ws.close(c, r),
         };
-        current.onConnect(att.conn, adapter);
+        current.on_connect(att.conn, adapter);
       }
-      yield* Effect.ignore(Effect.promise(() => current.onMessage(att.conn, msg)));
+      yield* Effect.ignore(Effect.promise(() => current.on_message(att.conn, msg)));
       run_background(do_state, runtime, flush_shared(store, do_state));
       yield* schedule_shared(store, last_ref, poll_ms, do_state);
     });
@@ -243,7 +243,7 @@ export class MachineRoom implements DurableObject {
         yield* Effect.ignore(Effect.exit(store.ensure_loaded((id) => adapter_for(live, id))));
       }
       const current = yield* store.get_room();
-      current?.onClose(att.conn);
+      current?.on_close(att.conn);
       run_background(do_state, runtime, flush_shared(store, do_state));
       yield* schedule_shared(store, last_ref, poll_ms, do_state);
     });
@@ -265,7 +265,7 @@ export class MachineRoom implements DurableObject {
           yield* Effect.ignore(Effect.exit(store.ensure_loaded((id) => adapter_for(live, id))));
         }
         const current = yield* store.get_room();
-        current?.onClose(att.conn);
+        current?.on_close(att.conn);
       }
       yield* close_quietly(ws, 1011, "error");
       run_background(do_state, runtime, flush_shared(store, do_state));

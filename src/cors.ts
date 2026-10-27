@@ -24,7 +24,7 @@
 import { Either } from "effect";
 
 /** Normalized `scheme://host[:port]`, or null when unset/invalid. */
-export function normalizePortalOrigin(raw: string | undefined): string | null {
+export function normalize_portal_origin(raw: string | undefined): string | null {
   if (!raw) return null;
   const v = raw.trim().replace(/\/+$/, "");
   if (!v || v.includes("*")) return null;
@@ -35,8 +35,8 @@ export function normalizePortalOrigin(raw: string | undefined): string | null {
       if (u.username || u.password) return null;
       if (u.pathname !== "/" && u.pathname !== "") return null;
       if (u.search || u.hash) return null;
-      const defPort = u.protocol === "https:" ? "443" : "80";
-      const port = u.port && u.port !== defPort ? `:${u.port}` : "";
+      const def_port = u.protocol === "https:" ? "443" : "80";
+      const port = u.port && u.port !== def_port ? `:${u.port}` : "";
       const host = u.hostname.toLowerCase();
       if (!host) return null;
       return `${u.protocol}//${host}${port}`;
@@ -45,10 +45,10 @@ export function normalizePortalOrigin(raw: string | undefined): string | null {
 }
 
 /** Exact-match check of a request Origin against the configured portal. */
-export function isAllowedOrigin(requestOrigin: string | null, portalOrigin: string | null): boolean {
-  if (!portalOrigin) return false;
-  if (!requestOrigin) return false;
-  return normalizePortalOrigin(requestOrigin) === portalOrigin;
+export function is_allowed_origin(request_origin: string | null, portal_origin: string | null): boolean {
+  if (!portal_origin) return false;
+  if (!request_origin) return false;
+  return normalize_portal_origin(request_origin) === portal_origin;
 }
 
 const CORS_METHODS = "GET, OPTIONS";
@@ -58,34 +58,34 @@ const CORS_HEADERS = "Authorization, Content-Type";
  * CORS headers for an actual response. Returns null when no CORS headers
  * apply (no Origin, no configured portal, or disallowed origin).
  */
-export function corsResponseHeaders(req: Request, portalOrigin: string | null): Headers | null {
+export function cors_response_headers(req: Request, portal_origin: string | null): Headers | null {
   const origin = req.headers.get("Origin");
-  if (!isAllowedOrigin(origin, portalOrigin)) return null;
+  if (!is_allowed_origin(origin, portal_origin)) return null;
   const h = new Headers();
-  h.set("Access-Control-Allow-Origin", portalOrigin as string);
+  h.set("Access-Control-Allow-Origin", portal_origin as string);
   h.set("Vary", "Origin");
   return h;
 }
 
 /** Standalone preflight answer, or null when this request is not an allowed preflight. */
-export function corsPreflight(req: Request, allowedPaths: RegExp, portalOrigin: string | null): Response | null {
+export function cors_preflight(req: Request, allowed_paths: RegExp, portal_origin: string | null): Response | null {
   if (req.method !== "OPTIONS") return null;
   const origin = req.headers.get("Origin");
   if (!origin) return null;
-  if (!new URL(req.url, "https://relay.invalid").pathname.match(allowedPaths)) return null;
-  if (!portalOrigin || !isAllowedOrigin(origin, portalOrigin)) return null;
-  const wantMethod = (req.headers.get("Access-Control-Request-Method") ?? "GET").toUpperCase();
-  if (wantMethod !== "GET" && wantMethod !== "OPTIONS") return null;
-  const wantHeaders = (req.headers.get("Access-Control-Request-Headers") ?? "")
+  if (!new URL(req.url, "https://relay.invalid").pathname.match(allowed_paths)) return null;
+  if (!portal_origin || !is_allowed_origin(origin, portal_origin)) return null;
+  const want_method = (req.headers.get("Access-Control-Request-Method") ?? "GET").toUpperCase();
+  if (want_method !== "GET" && want_method !== "OPTIONS") return null;
+  const want_headers = (req.headers.get("Access-Control-Request-Headers") ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   const allowed = new Set(["authorization", "content-type"]);
-  if (wantHeaders.some((h) => !allowed.has(h))) return null;
+  if (want_headers.some((h) => !allowed.has(h))) return null;
   return new Response(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": portalOrigin,
+      "Access-Control-Allow-Origin": portal_origin,
       "Access-Control-Allow-Methods": CORS_METHODS,
       "Access-Control-Allow-Headers": CORS_HEADERS,
       "Access-Control-Max-Age": "600",
@@ -99,11 +99,11 @@ export function corsPreflight(req: Request, allowedPaths: RegExp, portalOrigin: 
  * of upgrading, or null to proceed to grant+PoP admission. Native clients
  * (no Origin) always proceed.
  */
-export function wsOriginGate(req: Request, portalOrigin: string | null): Response | null {
-  if (!portalOrigin) return null;
+export function ws_origin_gate(req: Request, portal_origin: string | null): Response | null {
+  if (!portal_origin) return null;
   const origin = req.headers.get("Origin");
   if (!origin) return null;
-  if (normalizePortalOrigin(origin) === portalOrigin) return null;
+  if (normalize_portal_origin(origin) === portal_origin) return null;
   return new Response(JSON.stringify({ error: "forbidden origin" }), {
     status: 403,
     headers: { "content-type": "application/json" },

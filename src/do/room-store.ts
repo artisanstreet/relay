@@ -82,8 +82,8 @@ export const make_room_store = (
         Effect.gen(function* () {
           for (let i = 0; i < 4; i++) {
             const room = (yield* Ref.get(ref)).room;
-            if (!room || !room.isDirty()) return;
-            room.clearDirty();
+            if (!room || !room.is_dirty()) return;
+            room.clear_dirty();
             const snap = room.snapshot();
             const put_result = yield* Effect.exit(
               Effect.tryPromise({
@@ -92,7 +92,7 @@ export const make_room_store = (
               }),
             );
             if (put_result._tag === "Failure") {
-              room.markDirty();
+              room.mark_dirty();
               yield* Effect.logError("storage put failed");
               return yield* put_result;
             }

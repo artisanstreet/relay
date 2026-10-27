@@ -23,5 +23,5 @@ export const refresh_revocations = (
     const result = yield* Effect.exit(client.fetch_revocations());
     if (result._tag === "Failure") return;
     const room = yield* get_room();
-    room?.setRevocations(result.value.machines, result.value.keys);
+    room?.set_revocations(result.value.machines, result.value.keys);
   });
