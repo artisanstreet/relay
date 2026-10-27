@@ -1,11 +1,11 @@
 // Artisan Street Relay — Alchemy v2 infrastructure (production source of truth).
 //
 // Async-Worker pattern (official docs: cloudflare/compute/workers#async-workers):
-// the EXISTING raw module ../src/index.ts (default fetch handler + named
-// `MachineRoom` export) is bundled intact via `main`. No runtime rewrite to
-// Effect, no Alchemy runtime classes in the Worker. Hibernation support lives
-// entirely in the existing code (snapshot/restore + alarms); this file only
-// declares the deploy-time binding.
+// the EXISTING module ../src/index.ts (default fetch handler + named
+// `MachineRoom` export) is bundled intact via `main`. No Alchemy runtime
+// classes in the Worker. Hibernation support lives entirely in the
+// existing code (snapshot/restore + alarms); this file only declares the
+// deploy-time binding.
 //
 // DO management (beta>=82): Cloudflare's declarative `exports` map. New
 // classes are SQLite-backed; observed namespaces are preserved; a class no

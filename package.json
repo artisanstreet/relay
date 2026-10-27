@@ -13,7 +13,8 @@
     "infra:check": "pnpm --dir infra run check",
     "infra:plan": "pnpm --dir infra run plan",
     "infra:deploy": "pnpm --dir infra run deploy",
-    "build:client": "node --experimental-strip-types scripts/build-client.ts"
+    "build:client": "node --experimental-strip-types scripts/build-client.ts",
+    "build:worker": "node --experimental-strip-types scripts/build-worker.ts"
   },
   "dependencies": {
     "@effect/platform": "0.97.2",

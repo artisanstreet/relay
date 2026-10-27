@@ -39,17 +39,11 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
     `{ name }`, zone inferred, must pre-exist), `env` (DO binding +
     literals). No `assets` (Relay is API-only; Core's `runWorkerFirst:true`
     is a Core concern, not set here).
-  - `WorkerBundle.build` (`@alchemy.run/cloudflare/Workers/Sources/Rolldown`,
-    via the package `./*` wildcard) needs only Effect FileSystem+Path
-    (`@effect/platform-node` `NodeFileSystem`/`NodePath` layers) and returns
-    in-memory `{ files, hash }` — invocable offline with zero cloud calls.
-    `npm run bundle:check` uses it (the deploy-exact Cloudflare rolldown
-    plugin set) and asserts by IMPORTING the built entry: `default.fetch`
-    plus `MachineRoom` prototype handlers
-    (`fetch`/`webSocketMessage`/`webSocketClose`/`webSocketError`/`alarm`).
-    For `bundle: false` Workers the deploy-exact collector is instead
-    `readPrebuiltWorkerBundle` (`Workers/Sources/Prebuilt`) — not used here
-    since Relay bundles from source.
+  - `pnpm run build:worker` (repo script `scripts/build-worker.ts`)
+    bundles `../src/index.ts` with the workerd condition set, offline,
+    no cloud calls. The workerd test harness bundles the same entry the
+    same way, and `wrangler deploy --dry-run` plus `alchemy plan` remain
+    the deploy-shape gates.
   - Origin validation rejects wildcards (`*`/`%2A` — `new URL` parses them,
     so the check is explicit) and rejects identical Core/Relay origins (two
     custom-domain Workers cannot own one host).
@@ -77,13 +71,13 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 |---|---|---|
 | `pnpm install --frozen-lockfile` (in `infra/`) | reproducible install from `pnpm-lock.yaml` | no (npm registry only) |
 | `pnpm run typecheck` | `tsrs --noEmit` on infra only | no |
-| `npm test` | vitest: origin validation (exact-https, wildcards, Core/Relay distinctness), var derivation, domain | no |
-| `npm run bundle:check` | Alchemy `WorkerBundle` builds `../src/index.ts`, imports the entry, asserts `default.fetch` + `MachineRoom` hibernation handlers | no |
-| `npm run check` | typecheck + test + bundle:check (the full offline gate) | no |
-| `npm run plan -- --stage <s>` | `alchemy plan` (preview; see warning) | YES — see below |
-| `npm run deploy -- --stage <s> [--profile <p>] [--env-file <f>]` | `alchemy deploy` | YES |
-| `npm run destroy -- --stage <s>` | `alchemy destroy` (that stage only) | YES |
-| `npm run state:bootstrap` | `alchemy state bootstrap --backend cloudflare` (one-time) | YES |
+| `pnpm test` | vitest: origin validation (exact-https, wildcards, Core/Relay distinctness), var derivation, domain | no |
+| `pnpm run build:worker` | esbuild workerd bundle of `../src/index.ts` to `dist/worker.mjs`, offline | no |
+| `pnpm run check` | typecheck + test + worker build (the full offline gate) | no |
+| `pnpm run plan -- --stage <s>` | `alchemy plan` (preview; see warning) | YES — see below |
+| `pnpm run deploy -- --stage <s> [--profile <p>] [--env-file <f>]` | `alchemy deploy` | YES |
+| `pnpm run destroy -- --stage <s>` | `alchemy destroy` (that stage only) | YES |
+| `pnpm run state:bootstrap` | `alchemy state bootstrap --backend cloudflare` (one-time) | YES |
 
 `pnpm run <script> -- <args>` forwards args to the local `alchemy` binary
 (`node_modules/.bin`, installed by `pnpm install` — no global install). The only
@@ -91,8 +85,8 @@ bare-`alchemy` form used here is `pnpm dlx --no-install alchemy profile ...`
 (`--no-install` guarantees the local binary, never a download).
 
 Root conveniences (`relay/package.json`, deps untouched):
-`npm run infra:check`, `npm run infra:plan -- --stage <s>`,
-`npm run infra:deploy -- --stage <s>` (delegate with `npm --prefix infra`).
+`pnpm run infra:check`, `pnpm run infra:plan -- --stage <s>`,
+`pnpm run infra:deploy -- --stage <s>` (delegate with `pnpm --dir infra`).
 The trailing `--` in the wrapper scripts is load-bearing: without it the
 inner npm swallows flags (`--stage`, `--help`) instead of forwarding them to
 Alchemy — verified via `--help` reaching `alchemy plan`/`deploy` usage.
@@ -155,17 +149,15 @@ Alchemy — verified via `--help` reaching `alchemy plan`/`deploy` usage.
 ## Deploy (authorized operators only; nothing here was deployed by this task)
 
 ```sh
-# From a fresh clone, install BOTH packages first: WorkerBundle builds
-# ../src/index.ts, which imports the runtime's dependencies (Effect 3,
-# jose, …) from the root node_modules — infra's own install is not enough.
-npm ci             # repo root: runtime deps for the bundled Worker source
-cd infra
-npm ci             # infra: Alchemy/Effect 4 deploy tooling
-npm run check            # offline gate, must be green
+# From a fresh clone, install the workspace first: bundling
+# ../src/index.ts resolves the runtime's dependencies (Effect 3,
+# jose, …) from the workspace root — a bare infra install is not enough.
+pnpm install --frozen-lockfile  # repo root: single lock covers root + infra
+pnpm --dir infra run check      # offline gate, must be green
 cp .env.example .env     # fill in the two real https origins (prod pair)
 pnpm dlx alchemy profile edit --add Cloudflare   # once per machine/profile
-npm run state:bootstrap  # once per account (or rely on CI failure signal)
-npm run deploy -- --stage prod --profile prod   # origins via .env
+pnpm run state:bootstrap  # once per account (or rely on CI failure signal)
+pnpm run deploy -- --stage prod --profile prod   # origins via .env
 ```
 Previews: separate origins + `--env-file` (see "Preview stages" above) —
 never deploy a non-prod stage against the prod `.env`.

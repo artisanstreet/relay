@@ -16,7 +16,7 @@ export const DO_BINDING_NAME = "MACHINE_ROOM";
 /** Durable Object class name exported by ../src/index.ts. */
 export const DO_CLASS_NAME = "MachineRoom";
 
-/** Entry module bundled intact (raw async Worker, NOT rewritten to Effect). */
+/** Entry module bundled intact (Effect worker, NOT Alchemy runtime classes). */
 export const WORKER_MAIN = "../src/index.ts";
 
 /** Must match wrangler.toml compatibility_date (local/test parity). */
