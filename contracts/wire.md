@@ -72,20 +72,20 @@ ignored; duplicate acks are ignored (and never re-forwarded).
 
 `RelaySocket` mirrors the room caps (`SEND_WINDOW_FRAMES/BYTES`, pinned
 equal by test) and tracks unacked frames per channel:
-- `sendOpaque()` is fire-and-forget: returns `"dropped-window-full"`
+- `send_opaque()` is fire-and-forget: returns `"dropped-window-full"`
   instead of overflowing. A dropped return means sealed bytes that will
   NEVER deliver — the E2E session is thereby unusable; re-handshake,
   never retry the ciphertext.
-- `sendAcked()` resolves on the forwarded cumulative ack; rejects on
+- `send_acked()` resolves on the forwarded cumulative ack; rejects on
   timeout (fails the whole channel closed — windows desynchronize, so
   fail-closed), close, channel loss, or a full bounded park queue
   (`SEND_QUEUE_MAX` = 256).
-- `SecureChannel.sendApp(link, channel, plaintext)` is the correct upload
+- `SecureChannel.send_app(link, channel, plaintext)` is the correct upload
   primitive: it computes the EXACT encoded size pre-seal
   (`sealedFrameSize`, pinned exact by test) and throws
   `SendWouldBlockError` with NOTHING consumed (no Noise nonce spent)
   when the window lacks space — safe to retry after acks. Browsers use
-  this (or `sendAcked`), never bare `sendOpaque` for uploads.
+  this (or `send_acked`), never bare `send_opaque` for uploads.
 - Timeouts never free window credit silently: a timeout means the frame
   may sit unacked at Relay, so the channel fails closed (all outstanding
   rejected). Only a transport-level send failure (frame never left)
