@@ -26,7 +26,7 @@ export const schedule_alarm = (
           if (next === null) await do_state.storage.deleteAlarm();
           else await do_state.storage.setAlarm(next);
         },
-        catch: () => "alarm failed" as const,
+        catch: () => undefined,
       }),
     );
     if (result._tag === "Failure") {

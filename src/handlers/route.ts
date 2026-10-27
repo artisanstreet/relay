@@ -33,10 +33,14 @@ export const handle_route_upgrade = (
     const gate = wsOriginGate(req, cfg.portal_origin);
     if (gate) return gate;
     const stub = cfg.raw_env.MACHINE_ROOM.get(room_id(cfg.raw_env.MACHINE_ROOM, account, machine));
-    const upstream_exit = yield* Effect.exit(
-      Effect.promise(() => stub.fetch(`https://relay/room/${account}/${machine}`, { headers: req.headers })),
+    return yield* Effect.matchEffect(
+      Effect.tryPromise({
+        try: () => stub.fetch(`https://relay/room/${account}/${machine}`, { headers: req.headers }),
+        catch: () => new Error("route forward failed"),
+      }),
+      {
+        onFailure: () => Effect.succeed(json_response({ error: "route unavailable" }, 502)),
+        onSuccess: (upstream) => Effect.succeed(upstream),
+      },
     );
-    if (upstream_exit._tag === "Failure") return json_response({ error: "route unavailable" }, 502);
-    const upstream = upstream_exit.value;
-    return upstream;
   });

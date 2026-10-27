@@ -1,4 +1,4 @@
-import { Deferred, Effect, Ref } from "effect";
+import { Deferred, Effect, Match, Ref } from "effect";
 import { RoomState } from "../room/state.ts";
 import type { RoomSnapshot, RoomSocket, VerifyGrant } from "../room/state.ts";
 import { StorageUnavailable } from "../errors.ts";
@@ -54,20 +54,26 @@ export const make_room_store = (
           const deferred: Deferred.Deferred<RoomState | null, StorageUnavailable> =
             yield* Deferred.make<RoomState | null, StorageUnavailable>();
           type Claim =
-            | { readonly tag: "have-room"; readonly room: RoomState }
-            | { readonly tag: "await"; readonly loading: Deferred.Deferred<RoomState | null, StorageUnavailable> }
-            | { readonly tag: "claimed"; readonly deferred: Deferred.Deferred<RoomState | null, StorageUnavailable> };
+            | { readonly _tag: "have-room"; readonly room: RoomState }
+            | { readonly _tag: "await"; readonly loading: Deferred.Deferred<RoomState | null, StorageUnavailable> }
+            | { readonly _tag: "claimed"; readonly deferred: Deferred.Deferred<RoomState | null, StorageUnavailable> };
           const action: Claim = yield* Ref.modify(ref, (s): readonly [Claim, StoreState] => {
-            if (s.room) return [{ tag: "have-room", room: s.room } as const, s];
-            if (s.loading) return [{ tag: "await", loading: s.loading } as const, s];
-            return [{ tag: "claimed", deferred } as const, { ...s, loading: deferred }];
+            if (s.room) return [{ _tag: "have-room", room: s.room } as const, s];
+            if (s.loading) return [{ _tag: "await", loading: s.loading } as const, s];
+            return [{ _tag: "claimed", deferred } as const, { ...s, loading: deferred }];
           });
-          if (action.tag === "have-room") return action.room;
-          if (action.tag === "await") return yield* restore(Deferred.await(action.loading));
-          const result = yield* restore(Effect.exit(do_load(socket_for)));
-          yield* Deferred.done(deferred, result);
-          yield* Ref.update(ref, (s) => ({ ...s, loading: null }));
-          return yield* result;
+          return yield* Match.value(action).pipe(
+            Match.tag("have-room", ({ room }) => Effect.succeed(room)),
+            Match.tag("await", ({ loading }) => restore(Deferred.await(loading))),
+            Match.tag("claimed", () =>
+              Effect.gen(function* () {
+                const result = yield* restore(Effect.exit(do_load(socket_for)));
+                yield* Deferred.done(deferred, result);
+                yield* Ref.update(ref, (s) => ({ ...s, loading: null }));
+                return yield* result;
+              })),
+            Match.exhaustive,
+          );
         })
       );
 

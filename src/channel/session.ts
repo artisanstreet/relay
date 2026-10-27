@@ -2,7 +2,7 @@ import NoiseState from "noise-handshake";
 import type { NoiseOpts } from "noise-handshake";
 import CipherState from "noise-handshake/cipher";
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { Either, Match } from "effect";
+import { Either } from "effect";
 import {
   BIND_DOMAIN,
   ROLE_INITIATOR,
@@ -147,14 +147,13 @@ export class NoiseChannel {
     // copy the library mutates CALLER buffers (it zeroed our m1/m2 fixture
     // vectors before this fix). Live sessions are unaffected either way,
     // but fixture evidence and caller buffers must stay intact.
-    Match.value(Either.try({ try: () => this.hs.recv(Uint8Array.from(msg)), catch: () => undefined })).pipe(
-      Match.tag("Left", () => {
+    Either.match(Either.try({ try: () => this.hs.recv(Uint8Array.from(msg)), catch: () => undefined }), {
+      onLeft: (): never => {
         this.destroy();
         throw new Error("handshake failed, session destroyed");
-      }),
-      Match.tag("Right", () => undefined),
-      Match.exhaustive,
-    );
+      },
+      onRight: () => undefined,
+    });
     this.receivedHandshake++;
     if (this.hs.complete) this.onHandshakeComplete();
   }
@@ -226,15 +225,15 @@ export class NoiseChannel {
       this.destroy();
       throw new Error("bad transport length");
     }
-    const pt: Uint8Array = Match.value(
-      Either.try({ try: () => Uint8Array.from(recv_cipher.decrypt(ct)), catch: () => "decrypt-failed" as const }),
-    ).pipe(
-      Match.tag("Left", (): never => {
-        this.destroy();
-        throw new Error("transport decrypt failed, session destroyed");
-      }),
-      Match.tag("Right", ({ right }) => right),
-      Match.exhaustive,
+    const pt: Uint8Array = Either.match(
+      Either.try({ try: () => Uint8Array.from(recv_cipher.decrypt(ct)), catch: () => undefined }),
+      {
+        onLeft: (): never => {
+          this.destroy();
+          throw new Error("transport decrypt failed, session destroyed");
+        },
+        onRight: (right) => right,
+      },
     );
     this.recvCount++;
     const { kind, body } = this.parseFrame(pt);

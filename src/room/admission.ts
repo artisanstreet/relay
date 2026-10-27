@@ -4,7 +4,7 @@ import { b64uDecode, b64uEncode } from "../b64u.ts";
 import { has_scope } from "../services/grants/verifier.ts";
 import { popVerify } from "../e2e.ts";
 import { randomBytes } from "@noble/hashes/utils.js";
-import { Either, Match } from "effect";
+import { Either } from "effect";
 import { CHALLENGE_TTL_MS, CLOSE_AUTH, CLOSE_FORBIDDEN, CLOSE_POLICY, CLOSE_REPLACED, CLOSE_REVOKED, MAX_CLIENTS } from "./limits.ts";
 import { is_revoked } from "./revocation.ts";
 import type { AuthedConn, RoomCore, RoomIo } from "./types.ts";
@@ -79,15 +79,14 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
     io.drop(conn_id, CLOSE_AUTH, "auth-failed");
     return;
   }
-  const sig = Match.value(Either.try({ try: () => b64uDecode(sig_b64), catch: () => null })).pipe(
-    Match.tag("Left", () => {
+  const sig = Either.match(Either.try({ try: () => b64uDecode(sig_b64), catch: () => undefined }), {
+    onLeft: () => {
       io.send_to(conn_id, err("auth-failed", "bad signature encoding"));
       io.drop(conn_id, CLOSE_AUTH, "auth-failed");
-      return null;
-    }),
-    Match.tag("Right", ({ right }) => right),
-    Match.exhaustive,
-  );
+      return undefined;
+    },
+    onRight: (right) => right as Uint8Array | undefined,
+  });
   if (!sig) return;
   if (!popVerify(ch.cnfPk, ch.nonce, ch.jti, sig)) {
     io.send_to(conn_id, err("auth-failed", "proof of possession failed"));

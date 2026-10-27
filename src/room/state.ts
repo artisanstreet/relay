@@ -4,7 +4,7 @@ import {
 } from "../schema.ts";
 import type { ClientFrame } from "../schema.ts";
 import { b64uDecode, b64uEncode } from "../b64u.ts";
-import { Either, Match } from "effect";
+import { Either } from "effect";
 import type { VerifiedGrant } from "../services/grants/verifier.ts";
 import {
   CLOSE_AUTH,
@@ -139,26 +139,26 @@ export class RoomState {
       this.drop_conn(connId, CLOSE_POLICY, "frame-too-large");
       return;
     }
-    const parsed = Match.value(Either.try({ try: () => JSON.parse(text) as unknown, catch: () => undefined })).pipe(
-      Match.tag("Left", () => {
-        this.io.send_to(connId, err("malformed", "frame is not JSON"));
-        this.drop_conn(connId, CLOSE_POLICY, "malformed");
-        return undefined;
-      }),
-      Match.tag("Right", ({ right }) => right),
-      Match.exhaustive,
+    // JSON.parse never yields undefined on success, so undefined here
+    // unambiguously signals a parse rejection (not a wire value).
+    const parsed = Either.getOrElse(
+      Either.try({ try: () => JSON.parse(text) as unknown, catch: () => undefined }),
+      () => undefined,
     );
-    if (parsed === undefined) return;
-    const frame = Match.value(Either.try({ try: () => decodeClientFrame(parsed), catch: () => undefined })).pipe(
-      Match.tag("Left", () => {
-        this.io.send_to(connId, err("invalid-frame", "unknown fields or bad shape"));
-        this.drop_conn(connId, CLOSE_POLICY, "invalid-frame");
-        return undefined;
-      }),
-      Match.tag("Right", ({ right }) => right as ClientFrame),
-      Match.exhaustive,
+    if (parsed === undefined) {
+      this.io.send_to(connId, err("malformed", "frame is not JSON"));
+      this.drop_conn(connId, CLOSE_POLICY, "malformed");
+      return;
+    }
+    const frame = Either.getOrElse(
+      Either.try({ try: () => decodeClientFrame(parsed), catch: () => undefined }),
+      () => undefined,
     );
-    if (!frame) return;
+    if (frame === undefined) {
+      this.io.send_to(connId, err("invalid-frame", "unknown fields or bad shape"));
+      this.drop_conn(connId, CLOSE_POLICY, "invalid-frame");
+      return;
+    }
 
     if (this.core.pending.has(connId) && !this.core.challenges.has(connId)) {
       if (frame.type !== "hello") {
@@ -458,23 +458,22 @@ export class RoomState {
         dropped++;
         continue;
       }
-      let stale: number | null = null;
-      if (c.exp <= nowSec) stale = CLOSE_AUTH;
-      else if (machineRevoked) stale = CLOSE_REVOKED;
-      else {
-        stale = Match.value(Either.try({ try: () => b64uDecode(c.cnfX), catch: () => "decode-failed" as const })).pipe(
-          Match.tag("Left", () => CLOSE_AUTH),
-          Match.tag("Right", ({ right: cnfPk }) =>
-            cnfPk.length !== 32
-              ? CLOSE_AUTH
-              : matches_revoked_keys(c.kid, cnfPk, core.revoked_keys)
-                ? CLOSE_REVOKED
-                : null),
-          Match.exhaustive,
-        );
-      }
-      if (stale !== null) {
-        void Either.try({ try: () => sock.close(stale, "stale"), catch: () => undefined });
+      type Freshness = { readonly tag: "fresh" } | { readonly tag: "stale"; readonly code: number };
+      const freshness: Freshness = c.exp <= nowSec
+        ? { tag: "stale", code: CLOSE_AUTH }
+        : machineRevoked
+          ? { tag: "stale", code: CLOSE_REVOKED }
+          : Either.match(Either.try({ try: () => b64uDecode(c.cnfX), catch: () => undefined }), {
+              onLeft: (): Freshness => ({ tag: "stale", code: CLOSE_AUTH }),
+              onRight: (cnfPk): Freshness =>
+                cnfPk.length !== 32
+                  ? { tag: "stale", code: CLOSE_AUTH }
+                  : matches_revoked_keys(c.kid, cnfPk, core.revoked_keys)
+                    ? { tag: "stale", code: CLOSE_REVOKED }
+                    : { tag: "fresh" },
+            });
+      if (freshness.tag === "stale") {
+        void Either.try({ try: () => sock.close(freshness.code, "stale"), catch: () => undefined });
         dropped++;
         continue;
       }

@@ -44,20 +44,29 @@ export const handle_presence = (
     if (!has_scope(g, "relay:connect")) return yield* error_json({ error: "forbidden" }, 403);
     const cfg = yield* RelayEnv;
     const stub = cfg.raw_env.MACHINE_ROOM.get(room_id(cfg.raw_env.MACHINE_ROOM, account, machine));
-    const fetch_exit = yield* Effect.exit(
-      Effect.promise(() => stub.fetch("https://relay/presence")),
+    const fetched = yield* Effect.matchEffect(
+      Effect.gen(function* () {
+        const res = yield* Effect.tryPromise({
+          try: () => stub.fetch("https://relay/presence"),
+          catch: () => new Error("presence upstream unreachable"),
+        });
+        const body = (yield* Effect.tryPromise({
+          try: () => res.json() as Promise<unknown>,
+          catch: () => new Error("presence decode failed"),
+        })) as unknown;
+        return { res, body };
+      }),
+      {
+        onFailure: () => error_json({ error: "storage unavailable" }, 500),
+        onSuccess: ({ res, body }) => {
+          const status = res.status;
+          if (status < 200 || status >= 300) {
+            const payload = body ?? { error: "storage unavailable" };
+            return error_json(payload, status);
+          }
+          return error_json(body, 200);
+        },
+      },
     );
-    if (fetch_exit._tag === "Failure") return yield* error_json({ error: "storage unavailable" }, 500);
-    const upstream = fetch_exit.value;
-    const status = upstream.status;
-    const body_exit = yield* Effect.exit(
-      Effect.promise(() => upstream.json() as Promise<unknown>),
-    );
-    if (body_exit._tag === "Failure") return yield* error_json({ error: "storage unavailable" }, 500);
-    const body: unknown = body_exit.value;
-    if (status < 200 || status >= 300) {
-      const payload = body ?? { error: "storage unavailable" };
-      return yield* error_json(payload, status);
-    }
-    return yield* error_json(body, 200);
+    return fetched;
   });
