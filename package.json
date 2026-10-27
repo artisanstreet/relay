@@ -1,5 +1,6 @@
 {
   "name": "@artisanstreet/relay",
+  "license": "BSD-3-Clause",
   "version": "0.1.0",
   "private": true,
   "type": "module",
