@@ -14,22 +14,22 @@ import { pop_sign } from "../src/e2e.ts";
 import { b64u_encode } from "../src/jwt.ts";
 
 let mf: Miniflare;
-let jwksServer: ReturnType<typeof createServer>;
+let jwks_server: ReturnType<typeof createServer>;
 let base = "";
 const core = test_core_key();
 // Mutable Core stub state for the revocation poll test (EXACT Core wire
 // shape: camelCase revokedMachineIds/revokedKeyIds/asOf).
-const stubRevocations: { revokedMachineIds: string[]; revokedKeyIds: string[]; asOf: string } = {
+const stub_revocations: { revokedMachineIds: string[]; revokedKeyIds: string[]; asOf: string } = {
   revokedMachineIds: [],
   revokedKeyIds: [],
   asOf: new Date().toISOString(),
 };
 
 beforeAll(async () => {
-  jwksServer = createServer((req, res) => {
+  jwks_server = createServer((req, res) => {
     if (req.url === "/v1/grants/revocations") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ v: 1, ...stubRevocations }));
+      res.end(JSON.stringify({ v: 1, ...stub_revocations }));
       return;
     }
     res.writeHead(200, { "content-type": "application/json" });
@@ -37,8 +37,8 @@ beforeAll(async () => {
       keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID, alg: "EdDSA", use: "sig" }],
     }));
   });
-  await new Promise<void>((r) => jwksServer.listen(0, "127.0.0.1", () => r()));
-  const jwksPort = (jwksServer.address() as AddressInfo).port;
+  await new Promise<void>((r) => jwks_server.listen(0, "127.0.0.1", () => r()));
+  const jwks_port = (jwks_server.address() as AddressInfo).port;
 
   await build({
     entryPoints: ["src/index.ts"],
@@ -55,11 +55,11 @@ beforeAll(async () => {
     scriptPath: "dist/worker.mjs",
     durableObjects: { MACHINE_ROOM: "MachineRoom" },
     bindings: {
-      CORE_JWKS_URL: `http://127.0.0.1:${jwksPort}/jwks.json`,
+      CORE_JWKS_URL: `http://127.0.0.1:${jwks_port}/jwks.json`,
       CORE_ISS: TEST_ISS,
       RELAY_AUD: TEST_AUD,
       GRANT_MAX_TTL_S: "300",
-      CORE_REVOCATIONS_URL: `http://127.0.0.1:${jwksPort}/v1/grants/revocations`,
+      CORE_REVOCATIONS_URL: `http://127.0.0.1:${jwks_port}/v1/grants/revocations`,
       REVOCATION_POLL_MS: "2000",
     },
   });
@@ -68,10 +68,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mf?.dispose();
-  jwksServer?.close();
+  jwks_server?.close();
 });
 
-function wsUrl(account: string, machine: string): string {
+function ws_url(account: string, machine: string): string {
   return `${base.replace("http", "ws")}/v1/route/${account}/${machine}`;
 }
 
@@ -83,7 +83,7 @@ interface WsClient {
 
 function connect(): Promise<WsClient> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl("acct1", "forge1"));
+    const ws = new WebSocket(ws_url("acct1", "forge1"));
     const c: WsClient = { ws, received: [], closed: null };
     ws.addEventListener("open", () => resolve(c));
     ws.addEventListener("error", () => reject(new Error("ws connect failed")));
@@ -110,8 +110,8 @@ async function wait_for(cond: () => boolean, label: string): Promise<void> {
   }
 }
 
-async function admit(c: WsClient, role: "forge" | "client", grantOpts = {}) {
-  const g = await mint_grant(core, { role, account: "acct1", machine: "forge1", ...grantOpts });
+async function admit(c: WsClient, role: "forge" | "client", grant_opts = {}) {
+  const g = await mint_grant(core, { role, account: "acct1", machine: "forge1", ...grant_opts });
   c.ws.send(JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
   await wait_for(() => c.received.some((m) => JSON.parse(m.data).type === "challenge"), "challenge");
   const ch = c.received.map((m) => JSON.parse(m.data)).find((f) => f.type === "challenge") as { nonce: string };
@@ -186,7 +186,7 @@ describe("worker stack (miniflare)", () => {
     const c = await connect();
     const g = await admit(c, "client");
     // Revoke by cnf key using Core's exact field names.
-    stubRevocations.revokedKeyIds = [Buffer.from(g.cnf_pk).toString("base64url")];
+    stub_revocations.revokedKeyIds = [Buffer.from(g.cnf_pk).toString("base64url")];
     await wait_for(() => c.closed !== null, "revocation close");
     expect(c.closed?.code).toBe(4002);
     // Re-entry with the same (now revoked) key is rejected at hello.
@@ -194,7 +194,7 @@ describe("worker stack (miniflare)", () => {
     c2.ws.send(JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
     await wait_for(() => c2.closed !== null, "revoked re-entry");
     expect(c2.closed?.code).toBe(4002);
-    stubRevocations.revokedKeyIds = [];
+    stub_revocations.revokedKeyIds = [];
   }, 60_000);
 
   it("unacked flood gets backpressure errors, room stays bounded", async () => {
@@ -212,8 +212,8 @@ describe("worker stack (miniflare)", () => {
       "backpressure",
     );
     expect(c.closed).toBeNull();
-    const dataAtForge = f.received.filter((m) => JSON.parse(m.data).type === "data").length;
-    expect(dataAtForge).toBeLessThanOrEqual(64);
+    const data_at_forge = f.received.filter((m) => JSON.parse(m.data).type === "data").length;
+    expect(data_at_forge).toBeLessThanOrEqual(64);
     f.ws.close();
     c.ws.close();
   });

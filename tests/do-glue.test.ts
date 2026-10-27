@@ -76,18 +76,18 @@ class StubResponse {
 class FakeStorage {
   data = new Map<string, unknown>();
   alarms: (number | null)[] = [];
-  failGet = false;
-  failPut = false;
-  getCalls = 0;
-  putCalls = 0;
+  fail_get = false;
+  fail_put = false;
+  get_calls = 0;
+  put_calls = 0;
   async get<T>(key: string): Promise<T | undefined> {
-    this.getCalls++;
-    if (this.failGet) throw new Error("storage get failed");
+    this.get_calls++;
+    if (this.fail_get) throw new Error("storage get failed");
     return this.data.get(key) as T | undefined;
   }
   async put(key: string, value: unknown): Promise<void> {
-    this.putCalls++;
-    if (this.failPut) throw new Error("storage put failed");
+    this.put_calls++;
+    if (this.fail_put) throw new Error("storage put failed");
     this.data.set(key, value);
   }
   async setAlarm(t: number): Promise<void> {
@@ -133,16 +133,16 @@ function env(): Env {
 }
 
 /** Scoped global fetch stub: JWKS only, everything else delegates. */
-let realFetch: typeof fetch;
-let realResponse: typeof Response;
-function stubGlobalFetch(): void {
-  realFetch = globalThis.fetch;
+let real_fetch: typeof fetch;
+let real_response: typeof Response;
+function stub_global_fetch(): void {
+  real_fetch = globalThis.fetch;
   globalThis.fetch = (async (input: unknown, init?: unknown) => {
     const url = String(input);
     if (url === "https://core.test/.well-known/jwks.json") {
       return new Response(JSON.stringify(JWKS), { status: 200, headers: { "content-type": "application/json" } });
     }
-    return realFetch(input as never, init as never);
+    return real_fetch(input as never, init as never);
   }) as typeof fetch;
 }
 
@@ -154,7 +154,7 @@ async function settled(state: FakeState): Promise<void> {
   }
 }
 
-function asWs(s: FakeWs): WebSocket {
+function as_ws(s: FakeWs): WebSocket {
   return s as unknown as WebSocket;
 }
 
@@ -174,18 +174,18 @@ async function upgrade(do_: MachineRoom, account = "acct1", machine = "forge1"):
   return server;
 }
 
-async function authedServer(
+async function authed_server(
   do_: MachineRoom,
   server: FakeWs,
   role: "forge" | "client",
-  grantOpts = {},
+  grant_opts = {},
 ): Promise<{ jti: string }> {
-  const g = await mint_grant(core, { role, account: "acct1", machine: "forge1", ...grantOpts });
-  await do_.webSocketMessage(asWs(server), JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
+  const g = await mint_grant(core, { role, account: "acct1", machine: "forge1", ...grant_opts });
+  await do_.webSocketMessage(as_ws(server), JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
   const ch = frames(server).find((f) => (f as { type: string }).type === "challenge") as { nonce: string };
   if (!ch) throw new Error(`no challenge; got ${JSON.stringify(frames(server))}`);
   const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
-  await do_.webSocketMessage(    asWs(server),
+  await do_.webSocketMessage(    as_ws(server),
     JSON.stringify({ v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) }),
   );
   const ready = frames(server).some((f) => (f as { type: string }).type === "ready");
@@ -195,14 +195,14 @@ async function authedServer(
 
 beforeEach(() => {
   (globalThis as Record<string, unknown>)["WebSocketPair"] = FakePair;
-  realResponse = globalThis.Response;
+  real_response = globalThis.Response;
   (globalThis as Record<string, unknown>)["Response"] = StubResponse;
-  stubGlobalFetch();
+  stub_global_fetch();
 });
 
 afterEach(() => {
-  globalThis.fetch = realFetch;
-  globalThis.Response = realResponse;
+  globalThis.fetch = real_fetch;
+  globalThis.Response = real_response;
   delete (globalThis as Record<string, unknown>)["WebSocketPair"];
 });
 
@@ -214,32 +214,32 @@ describe("DO hibernation glue", () => {
   it("new connection after eviction restores members/channels (no discard)", async () => {
     const state = new FakeState();
     const a = new MachineRoom(state as never, env());
-    const forgeSock = await upgrade(a);
-    await authedServer(a, forgeSock, "forge");
-    await a.webSocketMessage(asWs(forgeSock), JSON.stringify({ v: 1, type: "pong", t: Date.now() }));
+    const forge_sock = await upgrade(a);
+    await authed_server(a, forge_sock, "forge");
+    await a.webSocketMessage(as_ws(forge_sock), JSON.stringify({ v: 1, type: "pong", t: Date.now() }));
     await settled(state);
     const snap = state.storage.data.get("relay:room:v1") as RoomSnapshot | undefined;
     expect(snap?.conns.length).toBe(1);
 
     // "Eviction": fresh instance, same storage + live sockets.
     const b = new MachineRoom(state as never, env());
-    const clientSock = await upgrade(b);
+    const client_sock = await upgrade(b);
     // The restored forge must still be a member: presence + routing work
     // without any re-hello from the old socket.
-    await authedServer(b, clientSock, "client");
-    await b.webSocketMessage(asWs(clientSock), JSON.stringify({ v: 1, type: "open", channel: "ch1" }));
+    await authed_server(b, client_sock, "client");
+    await b.webSocketMessage(as_ws(client_sock), JSON.stringify({ v: 1, type: "open", channel: "ch1" }));
     await settled(state);
-    await b.webSocketMessage(      asWs(clientSock),
+    await b.webSocketMessage(      as_ws(client_sock),
       JSON.stringify({ v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" }),
     );
-    const at_forge = frames(forgeSock).filter((f) => (f as { type: string }).type === "data");
+    const at_forge = frames(forge_sock).filter((f) => (f as { type: string }).type === "data");
     expect(at_forge.length).toBe(1);
     // Old socket speaks without re-authenticating.
-    await b.webSocketMessage(      asWs(forgeSock),
+    await b.webSocketMessage(      as_ws(forge_sock),
       JSON.stringify({ v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" }),
     );
-    const atClient = frames(clientSock).filter((f) => (f as { type: string }).type === "data");
-    expect(atClient.length).toBe(1);
+    const at_client = frames(client_sock).filter((f) => (f as { type: string }).type === "data");
+    expect(at_client.length).toBe(1);
     await settled(state);
     const snap2 = state.storage.data.get("relay:room:v1") as RoomSnapshot;
     expect(snap2.conns.length).toBe(2);
@@ -249,21 +249,21 @@ describe("DO hibernation glue", () => {
   it("concurrent wake-up shares a single load (no double restore)", async () => {
     const state = new FakeState();
     const a = new MachineRoom(state as never, env());
-    const forgeSock = await upgrade(a);
-    await authedServer(a, forgeSock, "forge");
+    const forge_sock = await upgrade(a);
+    await authed_server(a, forge_sock, "forge");
     await settled(state);
-    expect(state.storage.getCalls).toBeGreaterThan(0);
-    state.storage.getCalls = 0;
+    expect(state.storage.get_calls).toBeGreaterThan(0);
+    state.storage.get_calls = 0;
 
     const b = new MachineRoom(state as never, env());
     // N concurrent messages on the old socket with a cold instance.
     await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
-        b.webSocketMessage(asWs(forgeSock), JSON.stringify({ v: 1, type: "pong", t: Date.now() + i })),
+        b.webSocketMessage(as_ws(forge_sock), JSON.stringify({ v: 1, type: "pong", t: Date.now() + i })),
       ),
     );
     // Exactly one storage read served all eight (shared load promise).
-    expect(state.storage.getCalls).toBe(1);
+    expect(state.storage.get_calls).toBe(1);
     const snap = state.storage.data.get("relay:room:v1") as RoomSnapshot | undefined;
     expect(snap?.conns.length).toBe(1);
   });
@@ -271,9 +271,9 @@ describe("DO hibernation glue", () => {
   it("room mismatch never clobbers another room's snapshot", async () => {
     const state = new FakeState();
     const a = new MachineRoom(state as never, env());
-    const forgeSock = await upgrade(a);
-    void forgeSock;
-    await authedServer(a, forgeSock, "forge");
+    const forge_sock = await upgrade(a);
+    void forge_sock;
+    await authed_server(a, forge_sock, "forge");
     await settled(state);
     const before = JSON.stringify(state.storage.data.get("relay:room:v1"));
     expect(before).toContain("forge1");
@@ -286,9 +286,9 @@ describe("DO hibernation glue", () => {
     expect(res.status).toBe(400);
     expect(JSON.stringify(state.storage.data.get("relay:room:v1"))).toBe(before);
     // The loaded (non-clobbered) room still serves its own id with members.
-    const clientSock = await upgrade(b);
-    await authedServer(b, clientSock, "client");
-    const ready = frames(clientSock).find((f) => (f as { type: string }).type === "ready") as {
+    const client_sock = await upgrade(b);
+    await authed_server(b, client_sock, "client");
+    const ready = frames(client_sock).find((f) => (f as { type: string }).type === "ready") as {
       forge_online: boolean;
     };
     expect(ready.forge_online).toBe(true);
@@ -297,12 +297,12 @@ describe("DO hibernation glue", () => {
   it("storage failure on fetch is a 500 with retry (never a fresh room)", async () => {
     const state = new FakeState();
     const a = new MachineRoom(state as never, env());
-    const forgeSock = await upgrade(a);
-    await authedServer(a, forgeSock, "forge");
+    const forge_sock = await upgrade(a);
+    await authed_server(a, forge_sock, "forge");
     await settled(state);
     const before = JSON.stringify(state.storage.data.get("relay:room:v1"));
 
-    state.storage.failGet = true;
+    state.storage.fail_get = true;
     const b = new MachineRoom(state as never, env());
     const bad = await b.fetch(
       new Request("https://relay/room/acct1/forge1", { headers: { Upgrade: "websocket" } }),
@@ -312,30 +312,30 @@ describe("DO hibernation glue", () => {
     expect(JSON.stringify(state.storage.data.get("relay:room:v1"))).toBe(before);
 
     // Storage recovers: the SAME instance retries successfully.
-    state.storage.failGet = false;
+    state.storage.fail_get = false;
     const good = await b.fetch(
       new Request("https://relay/room/acct1/forge1", { headers: { Upgrade: "websocket" } }),
     );
     expect(good.status).toBe(101);
     // Old member survived (restored, still routable).
-    await b.webSocketMessage(      asWs(forgeSock),
+    await b.webSocketMessage(      as_ws(forge_sock),
       JSON.stringify({ v: 1, type: "pong", t: Date.now() }),
     );
-    expect(forgeSock.closed).toBeNull();
+    expect(forge_sock.closed).toBeNull();
   });
 
   it("storage failure on message fails closed with 1011 (no fresh room)", async () => {
     const state = new FakeState();
     const a = new MachineRoom(state as never, env());
-    const forgeSock = await upgrade(a);
-    await authedServer(a, forgeSock, "forge");
+    const forge_sock = await upgrade(a);
+    await authed_server(a, forge_sock, "forge");
     await settled(state);
     const before = JSON.stringify(state.storage.data.get("relay:room:v1"));
 
-    state.storage.failGet = true;
+    state.storage.fail_get = true;
     const b = new MachineRoom(state as never, env());
-    await b.webSocketMessage(asWs(forgeSock), JSON.stringify({ v: 1, type: "pong", t: Date.now() }));
-    expect(forgeSock.closed?.code).toBe(1011);
+    await b.webSocketMessage(as_ws(forge_sock), JSON.stringify({ v: 1, type: "pong", t: Date.now() }));
+    expect(forge_sock.closed?.code).toBe(1011);
     // No fresh room persisted on failed load (snapshot unchanged).
     expect(JSON.stringify(state.storage.data.get("relay:room:v1"))).toBe(before);
   });
@@ -343,28 +343,28 @@ describe("DO hibernation glue", () => {
   it("failed persist restores dirtiness and retries on later flush", async () => {
     const state = new FakeState();
     const a = new MachineRoom(state as never, env());
-    const forgeSock = await upgrade(a);
-    await authedServer(a, forgeSock, "forge");
-    const clientSock = await upgrade(a);
-    await authedServer(a, clientSock, "client");
+    const forge_sock = await upgrade(a);
+    await authed_server(a, forge_sock, "forge");
+    const client_sock = await upgrade(a);
+    await authed_server(a, client_sock, "client");
     await settled(state);
     // Break storage, then mutate (client opens ch1): the failed save must
     // not lose the change.
-    state.storage.failPut = true;
-    await a.webSocketMessage(asWs(clientSock), JSON.stringify({ v: 1, type: "open", channel: "ch1" }));
+    state.storage.fail_put = true;
+    await a.webSocketMessage(as_ws(client_sock), JSON.stringify({ v: 1, type: "open", channel: "ch1" }));
     await settled(state);
     const stale = state.storage.data.get("relay:room:v1") as RoomSnapshot;
     expect(stale.channels.length).toBe(0); // failed save: still the admission snapshot
     // Fail-closed boundary: live sockets are closed (clients reconnect and
     // re-hello with fresh grants) rather than diverging from storage.
-    expect(forgeSock.closed?.code).toBe(1011);
-    expect(clientSock.closed?.code).toBe(1011);
+    expect(forge_sock.closed?.code).toBe(1011);
+    expect(client_sock.closed?.code).toBe(1011);
     // Dirtiness restored (behavioral proof below): the next flush after
     // recovery persists the LATEST state, including ch1 from the failed pass.
     // Storage recovers: the next flush persists the LATEST state,
     // including the change from the failed pass.
-    state.storage.failPut = false;
-    await a.webSocketMessage(asWs(clientSock), JSON.stringify({ v: 1, type: "open", channel: "ch2" }));
+    state.storage.fail_put = false;
+    await a.webSocketMessage(as_ws(client_sock), JSON.stringify({ v: 1, type: "open", channel: "ch2" }));
     await settled(state);
     const snap = state.storage.data.get("relay:room:v1") as RoomSnapshot;
     expect(snap.channels.map((c) => c.name).sort()).toEqual(["ch1", "ch2"]);

@@ -12,8 +12,8 @@ import { pop_sign } from "../src/e2e.ts";
 import { b64u_encode } from "../src/jwt.ts";
 import { fake_socket, last_sent, mint_grant, send, test_core_key, test_verifier } from "./helpers.ts";
 
-async function authConn(room: RoomState, id: string, role: "forge" | "client", core = test_core_key(), grantOpts = {}) {
-  const g = await mint_grant(core, { role, ...grantOpts });
+async function auth_conn(room: RoomState, id: string, role: "forge" | "client", core = test_core_key(), grant_opts = {}) {
+  const g = await mint_grant(core, { role, ...grant_opts });
   const s = fake_socket();
   room.on_connect(id, s);
   await send(room, id, { v: 1, type: "hello", grant: g.jwt });
@@ -32,8 +32,8 @@ describe("hibernation restore", () => {
     const core = test_core_key();
     const verify = test_verifier(core);
     const a = new RoomState("acct1", "forge1", verify, () => Date.now());
-    await authConn(a, "f", "forge", core);
-    await authConn(a, "c", "client", core);
+    await auth_conn(a, "f", "forge", core);
+    await auth_conn(a, "c", "client", core);
     await send(a, "c", { v: 1, type: "open", channel: "ch1" });
     await send(a, "c", { v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" });
     await send(a, "c", { v: 1, type: "data", channel: "ch1", seq: 1, body: "eA" });
@@ -65,8 +65,8 @@ describe("hibernation restore", () => {
     const core = test_core_key();
     const verify = test_verifier(core);
     const a = new RoomState("acct1", "forge1", verify, () => Date.now());
-    const { g: fg } = await authConn(a, "f", "forge", core);
-    const { g: cg } = await authConn(a, "c", "client", core);
+    const { g: fg } = await auth_conn(a, "f", "forge", core);
+    const { g: cg } = await auth_conn(a, "c", "client", core);
     void fg;
     const snap = a.snapshot();
 
@@ -140,7 +140,7 @@ describe("hibernation restore", () => {
     a.on_connect("c", s);
     const d = a.next_deadline_ms();
     expect(d).toBe(now + 5_000); // hello timeout
-    const { g } = await authConn(a, "c2", "client", core);
+    const { g } = await auth_conn(a, "c2", "client", core);
     void g;
     expect(a.next_deadline_ms()).not.toBeNull();
     a.on_close("c");

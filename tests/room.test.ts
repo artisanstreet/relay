@@ -10,9 +10,9 @@ import { fake_socket, is_challenge, last_sent, make_room, mint_grant, send, test
 
 void CLOSE_BACKPRESSURE;
 
-async function admittedForge(h = make_room(test_verifier(test_core_key())), role: "forge" | "client" = "forge", grantOpts = {}) {
+async function admitted_forge(h = make_room(test_verifier(test_core_key())), role: "forge" | "client" = "forge", grant_opts = {}) {
   const core = test_core_key();
-  const g = await mint_grant(core, { role, ...grantOpts });
+  const g = await mint_grant(core, { role, ...grant_opts });
   const s = fake_socket();
   h.room.on_connect("c1", s);
   await send(h.room, "c1", { v: 1, type: "hello", grant: g.jwt });
@@ -35,14 +35,14 @@ describe("room admission", () => {
     const cs = fake_socket();
     h.room.on_connect("f", fs);
     h.room.on_connect("c", cs);
-    const doAuth = async (id: string, s: ReturnType<typeof fake_socket>, g: { jwt: string; jti: string; cnf_sk: Uint8Array }) => {
+    const do_auth = async (id: string, s: ReturnType<typeof fake_socket>, g: { jwt: string; jti: string; cnf_sk: Uint8Array }) => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       const ch = await wait_for_frame(s, is_challenge);
       const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
       await send(h.room, id, { v: 1, type: "authenticate", jti: g.jti, sig: b64u_encode(pop_sign(g.cnf_sk, nonce, g.jti)) });
     };
-    await doAuth("f", fs, fg);
-    await doAuth("c", cs, cg);
+    await do_auth("f", fs, fg);
+    await do_auth("c", cs, cg);
     expect(h.room.presence()).toEqual({ forge_online: true, clients: 1 });
     void fg;
     void cg;
@@ -166,7 +166,7 @@ describe("room admission", () => {
   });
 
   it("drops heartbeat-dead connections and pings the live", async () => {
-    const { h, s } = await admittedForge();
+    const { h, s } = await admitted_forge();
     h.room.tick(); // sends ping
     expect(s.sent.some((m) => JSON.parse(m).type === "ping")).toBe(true);
     h.advance(61_000);
@@ -176,7 +176,7 @@ describe("room admission", () => {
 });
 
 describe("room routing", () => {
-  async function openChannel() {
+  async function open_channel() {
     const core = test_core_key();
     const h = make_room(test_verifier(core));
     const fg = await mint_grant(core, { role: "forge" });
@@ -198,7 +198,7 @@ describe("room routing", () => {
   }
 
   it("routes data both directions, opaque to the room", async () => {
-    const { h, fs, cs } = await openChannel();
+    const { h, fs, cs } = await open_channel();
     const opaque = b64u_encode(new TextEncoder().encode("ciphertext-bytes-not-plaintext"));
     await send(h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 0, body: opaque });
     const at_forge = JSON.parse(fs.sent[fs.sent.length - 1] as string) as { type: string; body: string; seq: number };
@@ -206,13 +206,13 @@ describe("room routing", () => {
     expect(at_forge.body).toBe(opaque);
     expect(at_forge.seq).toBe(0);
     await send(h.room, "f", { v: 1, type: "data", channel: "ch1", seq: 0, body: opaque });
-    const atClient = JSON.parse(cs.sent[cs.sent.length - 1] as string) as { type: string; body: string };
-    expect(atClient.type).toBe("data");
-    expect(atClient.body).toBe(opaque);
+    const at_client = JSON.parse(cs.sent[cs.sent.length - 1] as string) as { type: string; body: string };
+    expect(at_client.type).toBe("data");
+    expect(at_client.body).toBe(opaque);
   });
 
   it("enforces contiguous transport seq (first 0, then last+1)", async () => {
-    const t = await openChannel();
+    const t = await open_channel();
     // Gap on first frame: rejected (must start at 0).
     await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 4, body: "eA" });
     const gap = JSON.parse(t.cs.sent[t.cs.sent.length - 1] as string) as { type: string; code?: string };
@@ -260,7 +260,7 @@ describe("room routing", () => {
   });
 
   it("rejects cross-client channels and unknown channels", async () => {
-    const t = await openChannel();
+    const t = await open_channel();
     const core = test_core_key();
     void core;
     await send(t.h.room, "c", { v: 1, type: "data", channel: "nope", seq: 0, body: "eA" });
@@ -270,20 +270,20 @@ describe("room routing", () => {
   });
 
   it("closes channels and notifies the peer", async () => {
-    const t = await openChannel();
+    const t = await open_channel();
     await send(t.h.room, "c", { v: 1, type: "close", channel: "ch1", reason: "done" });
     const got = JSON.parse(t.fs.sent[t.fs.sent.length - 1] as string) as { type: string };
     expect(got.type).toBe("channel-closed");
   });
 
   it("rejects oversize bodies", async () => {
-    const t = await openChannel();
+    const t = await open_channel();
     await send(t.h.room, "c", { v: 1, type: "data", channel: "ch1", seq: 0, body: "x".repeat(MAX_BODY_B64 + 1) });
     expect(t.cs.closed?.code).toBe(CLOSE_POLICY);
   });
 
   it("notifies clients when forge disconnects and reopens cleanly", async () => {
-    const t = await openChannel();
+    const t = await open_channel();
     t.h.room.on_close("f");
     const last = JSON.parse(t.cs.sent[t.cs.sent.length - 1] as string) as { type: string };
     expect(last.type).toBe("presence");

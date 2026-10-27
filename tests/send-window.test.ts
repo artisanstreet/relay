@@ -164,8 +164,8 @@ async function wait_open(ch: { get_phase(): string }, label: string): Promise<vo
     init.receive_handshake_message(m2);
     const m3 = init.next_handshake_message();
     resp.receive_handshake_message(m3);
-    const [cInit] = init.take_outbound();
-    resp.receive_transport(cInit as Uint8Array);
+    const [c_init] = init.take_outbound();
+    resp.receive_transport(c_init as Uint8Array);
     await wait_open(resp, "responder confirm");
     const taken = resp.take_outbound();
     if (taken.length === 0) throw new Error("responder confirm: no outbound after open");
@@ -215,9 +215,9 @@ async function wait_open(ch: { get_phase(): string }, label: string): Promise<vo
     expect(a.is_open()).toBe(true);
     // Fill the LINK window with raw frames (no Noise involved).
     for (let i = 0; i < 64; i++) expect(link.send_opaque("wb", new Uint8Array([i % 256]))).toBe("sent");
-    const sentBefore = a.noise.counters().sent;
+    const sent_before = a.noise.counters().sent;
     await expect(a.send_app(link, "wb", new Uint8Array([1, 2, 3]))).rejects.toBeInstanceOf(SendWouldBlockError);
     // Nothing consumed: Noise send counter unchanged, safe to retry later.
-    expect(a.noise.counters().sent).toBe(sentBefore);
+    expect(a.noise.counters().sent).toBe(sent_before);
   });
 });

@@ -94,13 +94,13 @@ function do_handshake(init: NoiseChannel, resp: NoiseChannel): void {
 async function full_open(ends?: Ends): Promise<Ends> {
   const e = ends ?? (await make_ends());
   do_handshake(e.init, e.resp);
-  const [cInit] = e.init.take_outbound();
-  expect(cInit).toBeDefined();
-  e.resp.receive_transport(cInit as Uint8Array);
+  const [c_init] = e.init.take_outbound();
+  expect(c_init).toBeDefined();
+  e.resp.receive_transport(c_init as Uint8Array);
   await wait_phase(e.resp, "open", "responder confirm");
-  const [cResp] = e.resp.take_outbound();
-  expect(cResp).toBeDefined();
-  const back = e.init.receive_transport(cResp as Uint8Array);
+  const [c_resp] = e.resp.take_outbound();
+  expect(c_resp).toBeDefined();
+  const back = e.init.receive_transport(c_resp as Uint8Array);
   await wait_phase(e.init, "open", "initiator confirm");
   expect(back).toBeNull();
   expect(e.init.get_phase()).toBe("open");
@@ -188,8 +188,8 @@ describe("noise channel with JWT identity binding", () => {
       ctx: CTX,
     });
     do_handshake(init, resp);
-    const [cInit] = init.take_outbound();
-    resp.receive_transport(cInit as Uint8Array);
+    const [c_init] = init.take_outbound();
+    resp.receive_transport(c_init as Uint8Array);
     await wait_closed(resp, "wrong-machine grant");
   });
 
@@ -197,24 +197,24 @@ describe("noise channel with JWT identity binding", () => {
     const e = await make_ends();
     // Attacker holds the JWT but not the cnf secret: craft a channel with
     // a WRONG cnf_sign_key while reusing the victim's JWT.
-    const attackerCnf = new_ed25519_keypair();
+    const attacker_cnf = new_ed25519_keypair();
     const evil = new NoiseChannel({
       initiator: true,
       static_keypair: static_keypair_from_secret(random_bytes(32)),
-      cnf_sign_key: attackerCnf.sk, // not the key the JWT binds
+      cnf_sign_key: attacker_cnf.sk, // not the key the JWT binds
       expected_responder_cnf: e.forge_cnf.pk,
       own_grant_jwt: e.editor_jwt,
       ctx: CTX,
     });
     do_handshake(evil, e.resp);
-    const [cInit] = evil.take_outbound();
-    e.resp.receive_transport(cInit as Uint8Array);
+    const [c_init] = evil.take_outbound();
+    e.resp.receive_transport(c_init as Uint8Array);
     await wait_closed(e.resp, "forged binding");
   });
 
   it("responder rejects in-confirm JWTs without client role + forge:execute", async () => {
     const core = test_core_key();
-    const mkVerify = () =>
+    const mk_verify = () =>
       make_channel_jwt_verifier(
         { jwks_url: TEST_JWKS_URL, expected_iss: TEST_ISS, expected_aud: TEST_AUD, max_ttl_sec: 300 },
         stub_fetch({ keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID }] }),
@@ -238,12 +238,12 @@ describe("noise channel with JWT identity binding", () => {
         initiator: false,
         static_keypair: static_keypair_from_secret(random_bytes(32)),
         cnf_sign_key: forge_cnf.sk,
-        verify_channel_jwt: mkVerify(),
+        verify_channel_jwt: mk_verify(),
         ctx: CTX,
       });
       do_handshake(init, resp);
-      const [cInit] = init.take_outbound();
-      resp.receive_transport(cInit as Uint8Array);
+      const [c_init] = init.take_outbound();
+      resp.receive_transport(c_init as Uint8Array);
       await wait_closed(resp, name);
     }
   });
@@ -251,7 +251,7 @@ describe("noise channel with JWT identity binding", () => {
   it("initiator rejects a responder key that is not the enrolled Forge", async () => {
     const core = test_core_key();
     const forge_cnf = new_ed25519_keypair(); // real enrolled key (expected)
-    const impostorCnf = new_ed25519_keypair(); // key the responder signs with
+    const impostor_cnf = new_ed25519_keypair(); // key the responder signs with
     const editor_cnf = new_ed25519_keypair();
     const g = await mint_grant(core, { cnf_sk: editor_cnf.sk });
     const verify = make_channel_jwt_verifier(
@@ -271,31 +271,31 @@ describe("noise channel with JWT identity binding", () => {
     const resp = new NoiseChannel({
       initiator: false,
       static_keypair: static_keypair_from_secret(random_bytes(32)),
-      cnf_sign_key: impostorCnf.sk, // impostor signs
+      cnf_sign_key: impostor_cnf.sk, // impostor signs
       verify_channel_jwt: verify,
       ctx: CTX,
     });
     do_handshake(init, resp);
-    const [cInit] = init.take_outbound();
-    resp.receive_transport(cInit as Uint8Array);
+    const [c_init] = init.take_outbound();
+    resp.receive_transport(c_init as Uint8Array);
     await wait_phase(resp, "open", "responder confirm"); // responder side is fine
-    const [cResp] = resp.take_outbound();
-    init.receive_transport(cResp as Uint8Array); // initiator check runs synchronously
+    const [c_resp] = resp.take_outbound();
+    init.receive_transport(c_resp as Uint8Array); // initiator check runs synchronously
     expect(init.get_phase()).toBe("closed");
   });
 
   it("initiator binding failure is fail-closed even when checked synchronously", async () => {
     const e = await make_ends();
     do_handshake(e.init, e.resp);
-    const [cInit] = e.init.take_outbound();
+    const [c_init] = e.init.take_outbound();
     // Corrupt the responder confirm's signature bytes in flight: flip the
     // last byte (inside the 64B binding signature).
-    e.resp.receive_transport(cInit as Uint8Array);
+    e.resp.receive_transport(c_init as Uint8Array);
     await wait_phase(e.resp, "open", "responder confirm");
-    const [cResp] = e.resp.take_outbound() as [Uint8Array];
-    const tampered = Uint8Array.from(cResp);
-    const lastIdx = tampered.length - 1;
-    tampered[lastIdx] = ((tampered[lastIdx] ?? 0) ^ 0xff);
+    const [c_resp] = e.resp.take_outbound() as [Uint8Array];
+    const tampered = Uint8Array.from(c_resp);
+    const last_idx = tampered.length - 1;
+    tampered[last_idx] = ((tampered[last_idx] ?? 0) ^ 0xff);
     // Tampering breaks AEAD (fail-closed at decrypt, before signature logic).
     expect(() => e.init.receive_transport(tampered)).toThrow();
     expect(e.init.get_phase()).toBe("closed");
@@ -366,11 +366,11 @@ describe("noise channel with JWT identity binding", () => {
       now_ms: () => now,
     });
     do_handshake(init, resp);
-    const [cInit] = init.take_outbound();
-    resp.receive_transport(cInit as Uint8Array);
+    const [c_init] = init.take_outbound();
+    resp.receive_transport(c_init as Uint8Array);
     await wait_phase(resp, "open", "responder confirm");
-    const [cResp] = resp.take_outbound();
-    init.receive_transport(cResp as Uint8Array);
+    const [c_resp] = resp.take_outbound();
+    init.receive_transport(c_resp as Uint8Array);
     await wait_phase(init, "open", "initiator confirm");
     expect(init.needs_rotation()).toBe(false);
     now += 25 * 60 * 60 * 1000;

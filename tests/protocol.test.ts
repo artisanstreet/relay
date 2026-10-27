@@ -11,10 +11,10 @@ import {
 import { MAX_BODY_B64 } from "../src/room.ts";
 
 describe("wire contracts", () => {
-  const fakeJwt = `${"a".repeat(20)}.${"b".repeat(20)}.${"c".repeat(20)}`;
+  const fake_jwt = `${"a".repeat(20)}.${"b".repeat(20)}.${"c".repeat(20)}`;
 
   it("accepts each client frame shape", () => {
-    expect(decode_client_frame({ v: 1, type: "hello", grant: fakeJwt }).type).toBe("hello");
+    expect(decode_client_frame({ v: 1, type: "hello", grant: fake_jwt }).type).toBe("hello");
     expect(decode_client_frame({ v: 1, type: "authenticate", jti: "j", sig: "c2ln" }).type).toBe("authenticate");
     expect(decode_client_frame({ v: 1, type: "open", channel: "ch1" }).type).toBe("open");
     expect(decode_client_frame({ v: 1, type: "data", channel: "ch1", seq: 0, body: "eA" }).type).toBe("data");
@@ -24,7 +24,7 @@ describe("wire contracts", () => {
 
   it("rejects unknown fields on every client frame", () => {
     const frames = [
-      { v: 1, type: "hello", grant: fakeJwt, extra: 1 },
+      { v: 1, type: "hello", grant: fake_jwt, extra: 1 },
       { v: 1, type: "authenticate", jti: "j", sig: "c2ln", extra: 1 },
       { v: 1, type: "open", channel: "ch1", extra: 1 },
       { v: 1, type: "data", channel: "ch1", seq: 0, body: "eA", extra: 1 },

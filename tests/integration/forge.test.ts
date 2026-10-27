@@ -45,24 +45,24 @@ const CHUNK_RAW = 40 * 1024;
 function b64u(b: Uint8Array): string {
   return b64u_encode(b);
 }
-function sha256Hex(data: Uint8Array | string): string {
+function sha256_hex(data: Uint8Array | string): string {
   const b = typeof data === "string" ? te.encode(data) : data;
   return bytes_to_hex(sha256(b));
 }
-async function machineHeaders(
-  subjectId: string, sk: Uint8Array, method: string, pathAndQuery: string, rawBody: string,
+async function machine_headers(
+  subject_id: string, sk: Uint8Array, method: string, path_and_query: string, raw_body: string,
 ): Promise<Record<string, string>> {
   const ts = String(Math.floor(Date.now() / 1000));
   const nonce = b64u(random_bytes(16));
-  const canonical = `${ts}\n${nonce}\n${method}\n${pathAndQuery}\n${sha256Hex(rawBody)}`;
+  const canonical = `${ts}\n${nonce}\n${method}\n${path_and_query}\n${sha256_hex(raw_body)}`;
   return {
-    "x-ast-machine": subjectId,
+    "x-ast-machine": subject_id,
     "x-ast-timestamp": ts,
     "x-ast-nonce": nonce,
     authorization: `AST-Machine ${b64u(ed25519.sign(te.encode(canonical), sk))}`,
   };
 }
-function strictKeys(obj: unknown, allowed: string[], what: string): Record<string, unknown> {
+function strict_keys(obj: unknown, allowed: string[], what: string): Record<string, unknown> {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) throw new Error(`${what}: not an object`);
   const o = obj as Record<string, unknown>;
   for (const k of Object.keys(o)) {
@@ -73,7 +73,7 @@ function strictKeys(obj: unknown, allowed: string[], what: string): Record<strin
 // Responses are forward-compatible: required fields must be present, but
 // additive fields (e.g. State.threads_next/waiting/account,
 // TunnelResponse.content_type) are allowed and ignored.
-function requireFields(obj: unknown, required: string[], what: string): Record<string, unknown> {
+function require_fields(obj: unknown, required: string[], what: string): Record<string, unknown> {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) throw new Error(`${what}: not an object`);
   const o = obj as Record<string, unknown>;
   for (const k of required) {
@@ -94,68 +94,68 @@ let rig: TestRig;
 let proxy: ReturnType<typeof createServer>;
 let mf: Miniflare;
 let base = "";
-let accountId = "";
-let machineId = "";
-let forgeSk: Uint8Array;
-let editorSk: Uint8Array;
-let editorGrantJwt = "";
-let editorJti = "";
-let sessionCookie = "";
-let dataDir = "";
-let coreBaseUrl = "";
+let account_id = "";
+let machine_id = "";
+let forge_sk: Uint8Array;
+let editor_sk: Uint8Array;
+let editor_grant_jwt = "";
+let editor_jti = "";
+let session_cookie = "";
+let data_dir = "";
+let core_base_url = "";
 let forge_proc: ChildProcess | null = null;
-const forgeLog: string[] = [];
-const forgeOut: string[] = [];
+const forge_log: string[] = [];
+const forge_out: string[] = [];
 
 beforeAll(async () => {
   rig = await setup_rig();
   const q1 = await api(rig.app, "POST", "/v1/auth/magic/request", { body: { email: "rinterop@example.invalid" } });
   if (q1.status !== 200) throw new Error(`request failed: ${q1.text}`);
-  const { requestId, requestSecret } = q1.json as { requestId: string; requestSecret: string };
+  const { requestId: request_id, requestSecret: request_secret } = q1.json as { requestId: string; requestSecret: string };
   const token = rig.token_for_email("rinterop@example.invalid");
   const q2 = await api(rig.app, "POST", "/v1/auth/magic/consume", { body: { token } });
   if (q2.status !== 200) throw new Error(`consume failed: ${q2.text}`);
-  const q3 = await api(rig.app, "POST", "/v1/auth/magic/finalize", { body: { requestId, requestSecret } });
+  const q3 = await api(rig.app, "POST", "/v1/auth/magic/finalize", { body: { requestId: request_id, requestSecret: request_secret } });
   if (q3.status !== 200) throw new Error(`finalize failed: ${q3.text}`);
-  accountId = (q3.json as { accountId: string }).accountId;
-  sessionCookie = ((q3.headers.get("set-cookie") ?? "").split(";")[0] ?? "") as string;
+  account_id = (q3.json as { accountId: string }).accountId;
+  session_cookie = ((q3.headers.get("set-cookie") ?? "").split(";")[0] ?? "") as string;
 
-  forgeSk = ed25519.utils.randomSecretKey();
-  const forgeX = b64u(ed25519.getPublicKey(forgeSk));
+  forge_sk = ed25519.utils.randomSecretKey();
+  const forge_x = b64u(ed25519.getPublicKey(forge_sk));
   const label = "interop-forge";
   const ts = Math.floor(Date.now() / 1000);
-  const proof = b64u(ed25519.sign(te.encode(`enrollment-request\n${forgeX}\n${label}\n${ts}`), forgeSk));
+  const proof = b64u(ed25519.sign(te.encode(`enrollment-request\n${forge_x}\n${label}\n${ts}`), forge_sk));
   const start = await api(rig.app, "POST", "/v1/machines/enrollments", {
-    body: { publicKey: { kty: "OKP", crv: "Ed25519", x: forgeX }, label, timestamp: ts, proof },
+    body: { publicKey: { kty: "OKP", crv: "Ed25519", x: forge_x }, label, timestamp: ts, proof },
   });
   if (start.status !== 201) throw new Error(`enroll failed: ${start.text}`);
-  const { enrollmentId, code } = start.json as { enrollmentId: string; code: string };
+  const { enrollmentId: enrollment_id, code } = start.json as { enrollmentId: string; code: string };
   const claim = await api(rig.app, "POST", "/v1/machines/enrollments/claim", {
-    headers: { cookie: sessionCookie, origin: "http://localhost" },
+    headers: { cookie: session_cookie, origin: "http://localhost" },
     body: { code },
   });
   if (claim.status !== 200) throw new Error(`claim failed: ${claim.text}`);
-  const statusPath = `/v1/machines/enrollments/${enrollmentId}/status`;
-  const st = await api(rig.app, "GET", statusPath, {
-    headers: await machineHeaders(enrollmentId, forgeSk, "GET", statusPath, ""),
+  const status_path = `/v1/machines/enrollments/${enrollment_id}/status`;
+  const st = await api(rig.app, "GET", status_path, {
+    headers: await machine_headers(enrollment_id, forge_sk, "GET", status_path, ""),
   });
   if (st.status !== 200) throw new Error(`status failed: ${st.text}`);
   const confirmation = b64u(
-    ed25519.sign(te.encode(`enrollment-confirm\n${enrollmentId}\n${accountId}\n${forgeX}`), forgeSk),
+    ed25519.sign(te.encode(`enrollment-confirm\n${enrollment_id}\n${account_id}\n${forge_x}`), forge_sk),
   );
-  const confirmPath = "/v1/machines/enrollments/confirm";
-  const cbody = JSON.stringify({ enrollmentId, accountId, confirmation });
-  const done = await api(rig.app, "POST", confirmPath, {
-    headers: await machineHeaders(enrollmentId, forgeSk, "POST", confirmPath, cbody),
+  const confirm_path = "/v1/machines/enrollments/confirm";
+  const cbody = JSON.stringify({ enrollmentId: enrollment_id, accountId: account_id, confirmation });
+  const done = await api(rig.app, "POST", confirm_path, {
+    headers: await machine_headers(enrollment_id, forge_sk, "POST", confirm_path, cbody),
     raw_body: cbody,
   });
   if (done.status !== 201) throw new Error(`confirm failed: ${done.text}`);
-  machineId = (done.json as { machineId: string }).machineId;
+  machine_id = (done.json as { machineId: string }).machineId;
 
   // NOTE: the Editor grant is minted in the TEST (fresh 300s TTL after the
   // cargo build + Hub startup), never here — minting it in beforeAll lets
   // the TTL rot during slow setup and produces impossible-looking stalls.
-  editorSk = ed25519.utils.randomSecretKey();
+  editor_sk = ed25519.utils.randomSecretKey();
 
   proxy = createServer(async (req, res) => {
     try {
@@ -175,11 +175,11 @@ beforeAll(async () => {
         console.log(`PROXY ${req.method} ${req.url} -> ${r.status}`);
       }
       const text = await r.text();
-      const outHeaders: Record<string, string> = {};
+      const out_headers: Record<string, string> = {};
       r.headers.forEach((v, k) => {
-        outHeaders[k] = v;
+        out_headers[k] = v;
       });
-      res.writeHead(r.status, outHeaders);
+      res.writeHead(r.status, out_headers);
       res.end(text);
     } catch (e) {
       res.writeHead(500, { "content-type": "application/json" });
@@ -187,8 +187,8 @@ beforeAll(async () => {
     }
   });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", () => r()));
-  const proxyPort = (proxy.address() as AddressInfo).port;
-  coreBaseUrl = `http://127.0.0.1:${proxyPort}`;
+  const proxy_port = (proxy.address() as AddressInfo).port;
+  core_base_url = `http://127.0.0.1:${proxy_port}`;
 
   await build({
     entryPoints: ["src/index.ts"],
@@ -205,11 +205,11 @@ beforeAll(async () => {
     scriptPath: "dist/worker-forge.mjs",
     durableObjects: { MACHINE_ROOM: "MachineRoom" },
     bindings: {
-      CORE_JWKS_URL: `http://127.0.0.1:${proxyPort}/.well-known/jwks.json`,
+      CORE_JWKS_URL: `http://127.0.0.1:${proxy_port}/.well-known/jwks.json`,
       CORE_ISS: "http://test.invalid",
       RELAY_AUD: "ast-relay",
       GRANT_MAX_TTL_S: "300",
-      CORE_REVOCATIONS_URL: `http://127.0.0.1:${proxyPort}/v1/grants/revocations`,
+      CORE_REVOCATIONS_URL: `http://127.0.0.1:${proxy_port}/v1/grants/revocations`,
       REVOCATION_POLL_MS: "2000",
     },
   });
@@ -218,7 +218,7 @@ beforeAll(async () => {
   // Build the harness binary (shared editor/target). If the editor tree
   // is mid-edit by another contributor and the build fails, proceed with
   // the existing binary ONLY when present (recorded below) — never silently.
-  const editorRev = (() => {
+  const editor_rev = (() => {
     try {
       return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
         cwd: EDITOR_DIR,
@@ -227,14 +227,14 @@ beforeAll(async () => {
       return "unknown";
     }
   })();
-  console.log(`forge interop against editor rev ${editorRev}`);
+  console.log(`forge interop against editor rev ${editor_rev}`);
   // Build fails LOUDLY (no prebuilt fallback: a mid-edit upstream tree
   // must fail visibly and rerun when stable, never silently test stale code).
   // Pin the toolchain to the Editor's rust-toolchain.toml: the build cwd
   // (relay/interop) inherits default stable while sharing editor/target
   // with native `cargo 1.98.0` runs — a mismatch rebuilds the same target
   // dir and flakes. RUSTUP_TOOLCHAIN from the pinned file avoids it.
-  const pinnedToolchain = (() => {
+  const pinned_toolchain = (() => {
     try {
       const text = readFileSync(join(EDITOR_DIR, "rust-toolchain.toml"), "utf8");
       const m = text.match(/channel\s*=\s*"([^"]+)"/);
@@ -249,23 +249,23 @@ beforeAll(async () => {
       env: {
         ...process.env,
         CARGO_TARGET_DIR: join(EDITOR_DIR, "target"),
-        ...(pinnedToolchain ? { RUSTUP_TOOLCHAIN: pinnedToolchain } : {}),
+        ...(pinned_toolchain ? { RUSTUP_TOOLCHAIN: pinned_toolchain } : {}),
       },
       stdio: ["ignore", "ignore", "pipe"],
       timeout: 300_000,
     });
   } catch (e) {
     const out = (e as { stderr?: Buffer }).stderr?.toString() ?? String(e);
-    const logPath = join(tmpdir(), `forge-build-${Date.now()}.log`);
+    const log_path = join(tmpdir(), `forge-build-${Date.now()}.log`);
     try {
-      writeFileSync(logPath, out);
+      writeFileSync(log_path, out);
     } catch { /* ignore */ }
-    console.log(`BUILD STDERR (also at ${logPath}):\n${out.split("\n").slice(-30).join("\n")}`);
-    throw new Error(`forge binary build failed (editor tree mid-edit? rerun when stable): see ${logPath}`);
+    console.log(`BUILD STDERR (also at ${log_path}):\n${out.split("\n").slice(-30).join("\n")}`);
+    throw new Error(`forge binary build failed (editor tree mid-edit? rerun when stable): see ${log_path}`);
   }
 
   // Launch: caller-built Hub + production serve_account_relay.
-  dataDir = mkdtempSync(join(tmpdir(), "relay-interop-"));
+  data_dir = mkdtempSync(join(tmpdir(), "relay-interop-"));
   forge_proc = spawn(
     FORGE_SMOKE_BIN,
     [],
@@ -276,17 +276,17 @@ beforeAll(async () => {
     for (const line of d.toString().split("\n")) {
       if (!line.trim()) continue;
       lines.push(line);
-      forgeOut.push(line);
+      forge_out.push(line);
     }
   });
   forge_proc.stderr?.on("data", (d: Buffer) => {
-    forgeLog.push(d.toString());
-    if (forgeLog.length > 100) forgeLog.splice(0, forgeLog.length - 100);
+    forge_log.push(d.toString());
+    if (forge_log.length > 100) forge_log.splice(0, forge_log.length - 100);
   });
-  const sendLine = (obj: unknown): void => {
+  const send_line = (obj: unknown): void => {
     forge_proc?.stdin?.write(`${JSON.stringify(obj)}\n`);
   };
-  const nextLine = async (): Promise<string> => {
+  const next_line = async (): Promise<string> => {
     const deadline = Date.now() + 60_000;
     for (;;) {
       const line = lines.shift();
@@ -295,24 +295,24 @@ beforeAll(async () => {
       await new Promise((r) => setTimeout(r, 50));
     }
   };
-  sendLine({
-    ws_url: `${base.replace("http", "ws")}/v1/route/${accountId}/${machineId}`,
-    core_base_url: coreBaseUrl,
-    machine_id: machineId,
-    account_id: accountId,
-    machine_secret_hex: Buffer.from(forgeSk).toString("hex"),
+  send_line({
+    ws_url: `${base.replace("http", "ws")}/v1/route/${account_id}/${machine_id}`,
+    core_base_url: core_base_url,
+    machine_id: machine_id,
+    account_id: account_id,
+    machine_secret_hex: Buffer.from(forge_sk).toString("hex"),
     expected_iss: "http://test.invalid",
-    data_dir: dataDir,
+    data_dir: data_dir,
   });
-  const hello = JSON.parse(await nextLine()) as Record<string, unknown>;
-  if (!hello["ready"]) throw new Error(`forge failed to start: ${JSON.stringify(hello)}\nstderr:\n${forgeLog.slice(-20).join("\n")}`);
-  (globalThis as Record<string, unknown>).__forgeInteropSend = sendLine;
-  (globalThis as Record<string, unknown>).__forgeInteropNext = nextLine;
+  const hello = JSON.parse(await next_line()) as Record<string, unknown>;
+  if (!hello["ready"]) throw new Error(`forge failed to start: ${JSON.stringify(hello)}\nstderr:\n${forge_log.slice(-20).join("\n")}`);
+  (globalThis as Record<string, unknown>).__forge_interop_send = send_line;
+  (globalThis as Record<string, unknown>).__forge_interop_next = next_line;
 }, 300_000);
 
 afterAll(async () => {
   try {
-    ((globalThis as Record<string, unknown>).__forgeInteropSend as ((o: unknown) => void) | undefined)?.({ shutdown: true });
+    ((globalThis as Record<string, unknown>).__forge_interop_send as ((o: unknown) => void) | undefined)?.({ shutdown: true });
   } catch { /* ignore */ }
   if (forge_proc && forge_proc.exitCode === null) {
     forge_proc.kill("SIGTERM");
@@ -322,7 +322,7 @@ afterAll(async () => {
   forge_proc = null;
   await mf?.dispose();
   proxy?.close();
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  if (data_dir) rmSync(data_dir, { recursive: true, force: true });
 });
 
 describe("production rust seam (serve_account_relay)", () => {
@@ -332,21 +332,21 @@ describe("production rust seam (serve_account_relay)", () => {
       audience: "ast-relay",
       scope: ["relay:connect", "forge:execute", "machine:sync"],
       ttlSeconds: 300,
-      targetMachineId: machineId,
-      cnf: { kty: "OKP", crv: "Ed25519", x: b64u(ed25519.getPublicKey(editorSk)) },
+      targetMachineId: machine_id,
+      cnf: { kty: "OKP", crv: "Ed25519", x: b64u(ed25519.getPublicKey(editor_sk)) },
     });
     const eg = await api(rig.app, "POST", "/v1/grants/issue", {
-      headers: { cookie: sessionCookie, origin: "http://localhost" },
+      headers: { cookie: session_cookie, origin: "http://localhost" },
       raw_body: ebody,
     });
     expect(eg.status).toBe(200);
-    editorGrantJwt = (eg.json as { token: string }).token;
-    editorJti = JSON.parse(Buffer.from(editorGrantJwt.split(".")[1] as string, "base64url").toString()).jti as string;
+    editor_grant_jwt = (eg.json as { token: string }).token;
+    editor_jti = JSON.parse(Buffer.from(editor_grant_jwt.split(".")[1] as string, "base64url").toString()).jti as string;
 
     let online = false;
     for (let i = 0; i < 240 && !online; i++) {
-      const r = await fetch(`${base}/v1/presence/${accountId}/${machineId}`, {
-        headers: { Authorization: `Bearer ${editorGrantJwt}` },
+      const r = await fetch(`${base}/v1/presence/${account_id}/${machine_id}`, {
+        headers: { Authorization: `Bearer ${editor_grant_jwt}` },
       });
       const body = await r.text();
       console.log(`presence poll ${i}: status=${r.status} body=${body}`);
@@ -355,49 +355,49 @@ describe("production rust seam (serve_account_relay)", () => {
     }
     expect(online, "forge relay presence").toBe(true);
     // Sanity: a nonsense room must report offline (guards presence-path bugs).
-    const probe = await fetch(`${base}/v1/presence/${accountId}/mch_AAAAAAAAAAAAAAAAAAAAAAAAAA`, {
-      headers: { Authorization: `Bearer ${editorGrantJwt}` },
+    const probe = await fetch(`${base}/v1/presence/${account_id}/mch_AAAAAAAAAAAAAAAAAAAAAAAAAA`, {
+      headers: { Authorization: `Bearer ${editor_grant_jwt}` },
     });
     console.log(`nonsense-room presence status (expect 403): ${probe.status}`);
 
-    const editor_mat: GrantMaterial = { jwt: editorGrantJwt, jti: editorJti, cnf_sk: editorSk };
-    const editorClosed: number[] = [];
-    const editorErrors: { code: string; message: string }[] = [];
-    const editorOpened: string[] = [];
+    const editor_mat: GrantMaterial = { jwt: editor_grant_jwt, jti: editor_jti, cnf_sk: editor_sk };
+    const editor_closed: number[] = [];
+    const editor_errors: { code: string; message: string }[] = [];
+    const editor_opened: string[] = [];
     const editor_inbox: { channel: string; body: Uint8Array }[] = [];
     const editor_link = new EditorLink(
-      `${base.replace("http", "ws")}/v1/route/${accountId}/${machineId}`,
+      `${base.replace("http", "ws")}/v1/route/${account_id}/${machine_id}`,
       editor_mat,
       {
         on_data: (channel, _s, body) => editor_inbox.push({ channel, body }),
-        on_close: (code) => editorClosed.push(code),
-        on_error: (code, message) => editorErrors.push({ code, message }),
-        on_channel_opened: (channel) => editorOpened.push(channel),
+        on_close: (code) => editor_closed.push(code),
+        on_error: (code, message) => editor_errors.push({ code, message }),
+        on_channel_opened: (channel) => editor_opened.push(channel),
       },
       WebSocket,
     );
     expect((await editor_link.connect()).role).toBe("client");
 
     // Editor's view of the Forge enrolled key (authenticated Core record).
-    const ml = await api(rig.app, "GET", "/v1/machines", { headers: { cookie: sessionCookie, origin: "http://localhost" } });
+    const ml = await api(rig.app, "GET", "/v1/machines", { headers: { cookie: session_cookie, origin: "http://localhost" } });
     expect(ml.status).toBe(200);
     const listed = (ml.json as { machines?: { id: string; label?: string; publicKey: { x: string } }[] }).machines ?? [];
-    const forge_cnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machineId)?.publicKey.x ?? "") as string, "base64url"));
+    const forge_cnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machine_id)?.publicKey.x ?? "") as string, "base64url"));
     expect(forge_cnf.length).toBe(32);
 
-    const uniCtx = { account: accountId, machine: machineId, channel: "r-unary" };
-    const streamCtx = { account: accountId, machine: machineId, channel: "r-stream" };
-    const editorUni = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
-      cnf_sign_key: editorSk, expected_forge_cnf: forge_cnf, own_grant_jwt: editorGrantJwt, ctx: uniCtx,
+    const uni_ctx = { account: account_id, machine: machine_id, channel: "r-unary" };
+    const stream_ctx = { account: account_id, machine: machine_id, channel: "r-stream" };
+    const editor_uni = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+      cnf_sign_key: editor_sk, expected_forge_cnf: forge_cnf, own_grant_jwt: editor_grant_jwt, ctx: uni_ctx,
     });
-    const editorStream = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
-      cnf_sign_key: editorSk, expected_forge_cnf: forge_cnf, own_grant_jwt: editorGrantJwt, ctx: streamCtx,
+    const editor_stream = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+      cnf_sign_key: editor_sk, expected_forge_cnf: forge_cnf, own_grant_jwt: editor_grant_jwt, ctx: stream_ctx,
     });
 
     type End = { ch: SecureChannel; channel: string };
     const ends: End[] = [
-      { ch: editorUni, channel: "r-unary" },
-      { ch: editorStream, channel: "r-stream" },
+      { ch: editor_uni, channel: "r-unary" },
+      { ch: editor_stream, channel: "r-stream" },
     ];
     const arrived = new Map<End, Uint8Array[]>();
     for (const e of ends) arrived.set(e, []);
@@ -419,7 +419,7 @@ describe("production rust seam (serve_account_relay)", () => {
         editor_inbox.push(...rest);
       }
     };
-    const collectFrom = async (e: End, want: number): Promise<Uint8Array[]> => {
+    const collect_from = async (e: End, want: number): Promise<Uint8Array[]> => {
       const got = arrived.get(e) as Uint8Array[];
       for (let i = 0; i < 600 && got.length < want; i++) await settle();
       if (got.length < want) throw new Error(`stall: wanted ${want}, got ${got.length}`);
@@ -428,27 +428,27 @@ describe("production rust seam (serve_account_relay)", () => {
 
     editor_link.open("r-unary");
     editor_link.open("r-stream");
-    for (let i = 0; i < 120 && (!editorUni.is_open() || !editorStream.is_open()); i++) await settle();
-    if (!editorUni.is_open() || !editorStream.is_open()) {
-      const inboxDump = editor_inbox.slice(0, 8).map((x) => `${x.channel}:${x.body.length}`).join(",");
+    for (let i = 0; i < 120 && (!editor_uni.is_open() || !editor_stream.is_open()); i++) await settle();
+    if (!editor_uni.is_open() || !editor_stream.is_open()) {
+      const inbox_dump = editor_inbox.slice(0, 8).map((x) => `${x.channel}:${x.body.length}`).join(",");
       throw new Error(
-        `noise stall: uni=${editorUni.noise.get_phase()} stream=${editorStream.noise.get_phase()} inbox=[${inboxDump}] ` +
-          `opened=[${editorOpened.join(",")}] errors=${JSON.stringify(editorErrors)} closed=${JSON.stringify(editorClosed)}\n` +
-          `forge stdout:\n${forgeOut.slice(-20).join("\n")}\nstderr:\n${forgeLog.slice(-20).join("\n")}`,
+        `noise stall: uni=${editor_uni.noise.get_phase()} stream=${editor_stream.noise.get_phase()} inbox=[${inbox_dump}] ` +
+          `opened=[${editor_opened.join(",")}] errors=${JSON.stringify(editor_errors)} closed=${JSON.stringify(editor_closed)}\n` +
+          `forge stdout:\n${forge_out.slice(-20).join("\n")}\nstderr:\n${forge_log.slice(-20).join("\n")}`,
       );
     }
-    expect(editorUni.is_open(), "unary open").toBe(true);
-    expect(editorStream.is_open(), "stream open").toBe(true);
+    expect(editor_uni.is_open(), "unary open").toBe(true);
+    expect(editor_stream.is_open(), "stream open").toBe(true);
 
     // -- unary GET /state from the REAL Store (fresh dir: valid empty shape)
     // Responses are tolerant: required fields asserted, additive State
     // fields (threads_next/waiting/account/...) allowed.
-    editorUni.queue_app(JSON.stringify({ id: "r1", method: "GET", path: "/state" }));
-    const sresp = await collectFrom(ends[0] as End, 1);
-    const state = requireFields(JSON.parse(td.decode(sresp[0] as Uint8Array)), ["id", "status", "body"], "TunnelResponse");
+    editor_uni.queue_app(JSON.stringify({ id: "r1", method: "GET", path: "/state" }));
+    const sresp = await collect_from(ends[0] as End, 1);
+    const state = require_fields(JSON.parse(td.decode(sresp[0] as Uint8Array)), ["id", "status", "body"], "TunnelResponse");
     expect(state["id"]).toBe("r1");
     expect(state["status"]).toBe(200);
-    const sbody = requireFields(
+    const sbody = require_fields(
       state["body"] as Record<string, unknown>,
       ["head", "forge_version", "protocol", "projects", "threads", "runs", "settings", "engines"],
       "State",
@@ -460,12 +460,12 @@ describe("production rust seam (serve_account_relay)", () => {
     // -- SUBSCRIBE: real stream open, Hello first, then UNSUBSCRIBE ---------
     // Stream stays open across the 2 MiB draft roundtrip below (concurrent
     // stream + unary); UNSUBSCRIBE happens after the draft assertions.
-    editorStream.queue_app(JSON.stringify({ id: "rs1", method: "SUBSCRIBE", path: "/events?since=0" }));
-    const sevents = await collectFrom(ends[1] as End, 2);
-    const sack = requireFields(JSON.parse(td.decode(sevents[0] as Uint8Array)), ["id", "status", "body"], "StreamAck");
-    const streamId = ((sack["body"] as Record<string, unknown>)["$stream"] as Record<string, string>)["stream"] as string;
-    expect(typeof streamId).toBe("string");
-    const first = requireFields(
+    editor_stream.queue_app(JSON.stringify({ id: "rs1", method: "SUBSCRIBE", path: "/events?since=0" }));
+    const sevents = await collect_from(ends[1] as End, 2);
+    const sack = require_fields(JSON.parse(td.decode(sevents[0] as Uint8Array)), ["id", "status", "body"], "StreamAck");
+    const stream_id = ((sack["body"] as Record<string, unknown>)["$stream"] as Record<string, string>)["stream"] as string;
+    expect(typeof stream_id).toBe("string");
+    const first = require_fields(
       ((JSON.parse(td.decode(sevents[1] as Uint8Array)) as Record<string, unknown>)["$event"]) as Record<string, unknown>,
       ["stream", "envelope"], "$event",
     );
@@ -473,96 +473,96 @@ describe("production rust seam (serve_account_relay)", () => {
 
     // -- 2 MiB draft PUT then GET (paced, real Reassembly + draft store) --
     // Valid large route: PUT /drafts/smoke with {expected_revision:0,
-    // body:{text:bigText}} -> DraftWriteResult; GET /drafts/smoke ->
+    // body:{text:big_text}} -> DraftWriteResult; GET /drafts/smoke ->
     // DraftSnapshot. Crosses the 1 MiB window both directions on unary while
     // the event stream stays open (concurrent stream + unary). Raw
     // application/octet-stream blob PUTs are an invalid route and stay
     // rejected by Forge WebP validation; this test does not weaken that.
-    expect(editorStream.is_open(), "stream still open for concurrent draft").toBe(true);
-    const bigText = "0123456789ABCDEF".repeat(131072);
-    expect(bigText.length).toBe(2 * 1024 * 1024);
-    const putDraftReq = JSON.stringify({
+    expect(editor_stream.is_open(), "stream still open for concurrent draft").toBe(true);
+    const big_text = "0123456789ABCDEF".repeat(131072);
+    expect(big_text.length).toBe(2 * 1024 * 1024);
+    const put_draft_req = JSON.stringify({
       id: "rdraft1",
       method: "PUT",
       path: "/drafts/smoke",
-      body: { expected_revision: 0, body: { text: bigText } },
+      body: { expected_revision: 0, body: { text: big_text } },
     });
-    const putDraftFrames = chunkTransfer("rdraft1", te.encode(putDraftReq));
-    expect(putDraftFrames.length).toBeGreaterThan(50);
-    for (const c of putDraftFrames) {
-      const { ct } = editorUni.noise.seal(te.encode(c));
+    const put_draft_frames = chunk_transfer("rdraft1", te.encode(put_draft_req));
+    expect(put_draft_frames.length).toBeGreaterThan(50);
+    for (const c of put_draft_frames) {
+      const { ct } = editor_uni.noise.seal(te.encode(c));
       await editor_link.send_acked("r-unary", ct, { timeout_ms: 60_000 });
     }
-    const putDraftResp = await collectTunnelResponse(ends[0] as End, "rdraft1", settle, arrived, td);
-    expect(putDraftResp["status"]).toBe(200);
-    const putDraftBody = requireFields(putDraftResp["body"], ["saved", "current"], "DraftWriteResult");
-    expect(putDraftBody["saved"]).toBe(true);
-    const putCurrent = requireFields(putDraftBody["current"], ["revision", "body"], "DraftSnapshot");
-    expect((putCurrent["body"] as Record<string, unknown>)["text"]).toBe(bigText);
+    const put_draft_resp = await collect_tunnel_response(ends[0] as End, "rdraft1", settle, arrived, td);
+    expect(put_draft_resp["status"]).toBe(200);
+    const put_draft_body = require_fields(put_draft_resp["body"], ["saved", "current"], "DraftWriteResult");
+    expect(put_draft_body["saved"]).toBe(true);
+    const put_current = require_fields(put_draft_body["current"], ["revision", "body"], "DraftSnapshot");
+    expect((put_current["body"] as Record<string, unknown>)["text"]).toBe(big_text);
 
     // GET the same draft back (chunked download, reassembled TunnelChunks).
-    editorUni.queue_app(JSON.stringify({ id: "rdraft2", method: "GET", path: "/drafts/smoke" }));
-    const getDraftResp = await collectTunnelResponse(ends[0] as End, "rdraft2", settle, arrived, td);
-    expect(getDraftResp["status"]).toBe(200);
-    const getDraftBody = requireFields(getDraftResp["body"] as Record<string, unknown>, ["revision", "body"], "DraftSnapshot");
-    expect((getDraftBody["body"] as Record<string, unknown>)["text"]).toBe(bigText);
+    editor_uni.queue_app(JSON.stringify({ id: "rdraft2", method: "GET", path: "/drafts/smoke" }));
+    const get_draft_resp = await collect_tunnel_response(ends[0] as End, "rdraft2", settle, arrived, td);
+    expect(get_draft_resp["status"]).toBe(200);
+    const get_draft_body = require_fields(get_draft_resp["body"] as Record<string, unknown>, ["revision", "body"], "DraftSnapshot");
+    expect((get_draft_body["body"] as Record<string, unknown>)["text"]).toBe(big_text);
 
     // -- UNSUBSCRIBE after the concurrent draft roundtrip ---------------------
     // Demultiplex by id: live $events may still be queued ahead of the
     // rs2 response on the stream channel; drain them, don't assume the
     // first inbound frame is the response.
-    editorStream.queue_app(JSON.stringify({ id: "rs2", method: "UNSUBSCRIBE", path: `/events/${streamId}` }));
-    const sunsubResp = await collectStreamResponse(ends[1] as End, "rs2", settle, arrived, td);
-    expect(sunsubResp["id"]).toBe("rs2");
+    editor_stream.queue_app(JSON.stringify({ id: "rs2", method: "UNSUBSCRIBE", path: `/events/${stream_id}` }));
+    const sunsub_resp = await collect_stream_response(ends[1] as End, "rs2", settle, arrived, td);
+    expect(sunsub_resp["id"]).toBe("rs2");
 
     // -- NATIVE client proof: the actual RelayClient (same transport as
     // ForgeClient::via_relay) against the live Core + workerd + Forge ----
     // Plain binary, no ambient reactor: any GPUI-entry-style reactor miss
     // fails here instead of hiding behind the JS initiator above.
-    const nativeSk = ed25519.utils.randomSecretKey();
-    const nativeBody = JSON.stringify({
+    const native_sk = ed25519.utils.randomSecretKey();
+    const native_body = JSON.stringify({
       audience: "ast-relay",
       scope: ["relay:connect", "forge:execute", "machine:sync"],
       ttlSeconds: 300,
-      targetMachineId: machineId,
-      cnf: { kty: "OKP", crv: "Ed25519", x: b64u(ed25519.getPublicKey(nativeSk)) },
+      targetMachineId: machine_id,
+      cnf: { kty: "OKP", crv: "Ed25519", x: b64u(ed25519.getPublicKey(native_sk)) },
     });
     const neg = await api(rig.app, "POST", "/v1/grants/issue", {
-      headers: { cookie: sessionCookie, origin: "http://localhost" },
-      raw_body: nativeBody,
+      headers: { cookie: session_cookie, origin: "http://localhost" },
+      raw_body: native_body,
     });
     expect(neg.status).toBe(200);
-    const nativeJwt = (neg.json as { token: string }).token;
-    const machineLabel = listed.find((m) => m.id === machineId)?.label ?? "interop-forge";
-    const nativeCfg = {
+    const native_jwt = (neg.json as { token: string }).token;
+    const machine_label = listed.find((m) => m.id === machine_id)?.label ?? "interop-forge";
+    const native_cfg = {
       relay_base_url: base,
-      account_id: accountId,
-      machine_id: machineId,
+      account_id: account_id,
+      machine_id: machine_id,
       forge_ed25519_b64u: b64u(forge_cnf),
-      grant_jwt: nativeJwt,
-      cnf_secret_hex: Buffer.from(nativeSk).toString("hex"),
-      core_base_url: coreBaseUrl,
-      session_token: sessionCookie.split(";")[0]?.replace(/^ast_session=/, "") ?? "",
+      grant_jwt: native_jwt,
+      cnf_secret_hex: Buffer.from(native_sk).toString("hex"),
+      core_base_url: core_base_url,
+      session_token: session_cookie.split(";")[0]?.replace(/^ast_session=/, "") ?? "",
       draft_scope: "native-smoke",
     };
     // Async spawn (never execFileSync): the same Node event loop hosts the
     // live Core HTTP proxy that the Forge's revocation poll and the Relay's
     // JWKS fetch hit. Blocking the loop for the whole native run would
     // freeze those fetches and fake a client stall.
-    const nativeOut = await runNativePeer(nativeCfg);
-    const nativeLines = nativeOut.trim().split("\n").filter((l) => l.trim());
-    const nativeSummary = JSON.parse(nativeLines[nativeLines.length - 1] as string) as Record<string, unknown>;
-    expect(nativeSummary["ok"]).toBe(true);
-    expect(nativeSummary["draft_bytes"]).toBe(2 * 1024 * 1024);
-    expect(typeof nativeSummary["state_head"]).toBe("number");
-    expect(typeof nativeSummary["stream"]).toBe("string");
+    const native_out = await run_native_peer(native_cfg);
+    const native_lines = native_out.trim().split("\n").filter((l) => l.trim());
+    const native_summary = JSON.parse(native_lines[native_lines.length - 1] as string) as Record<string, unknown>;
+    expect(native_summary["ok"]).toBe(true);
+    expect(native_summary["draft_bytes"]).toBe(2 * 1024 * 1024);
+    expect(typeof native_summary["state_head"]).toBe("number");
+    expect(typeof native_summary["stream"]).toBe("string");
 
     // -- Core revocation sweeps the live connection ---------------------------
-    const rev = await api(rig.app, "POST", `/v1/machines/${machineId}/revoke`, {
-      headers: { cookie: sessionCookie, origin: "http://localhost" },
+    const rev = await api(rig.app, "POST", `/v1/machines/${machine_id}/revoke`, {
+      headers: { cookie: session_cookie, origin: "http://localhost" },
     });
     expect(rev.status).toBe(200);
-    await wait_for(() => editorClosed.some((c) => c === 4002), "revocation sweep", 60_000);
+    await wait_for(() => editor_closed.some((c) => c === 4002), "revocation sweep", 60_000);
   }, 300_000);
 });
 
@@ -571,7 +571,7 @@ describe("production rust seam (serve_account_relay)", () => {
 // Relay JWKS fetches) and pumps the JS initiator link, so a synchronous
 // execFileSync here would freeze the server side and fake a client stall.
 // Bounded 180 s timeout, stdin config, sanitized captured output.
-function runNativePeer(cfg: Record<string, unknown>): Promise<string> {
+function run_native_peer(cfg: Record<string, unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(NATIVE_SMOKE_BIN, [], { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
@@ -603,7 +603,7 @@ function runNativePeer(cfg: Record<string, unknown>): Promise<string> {
   });
 }
 
-function chunkTransfer(transfer: string, bytes: Uint8Array): string[] {  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_RAW));
+function chunk_transfer(transfer: string, bytes: Uint8Array): string[] {  const total = Math.max(1, Math.ceil(bytes.length / CHUNK_RAW));
   const out: string[] = [];
   for (let i = 0; i < total; i++) {
     out.push(
@@ -623,14 +623,14 @@ function chunkTransfer(transfer: string, bytes: Uint8Array): string[] {  const t
 // ({transfer, index, total, bytes_b64u}) when the response exceeds the
 // Noise plaintext budget. Compares the decoded Draft text after reassembly,
 // never the raw encoded bytes to the payload.
-async function collectTunnelResponse(
+async function collect_tunnel_response(
   end: { ch: unknown; channel: string },
-  wantId: string,
+  want_id: string,
   settle: () => Promise<void>,
   arrived: Map<unknown, Uint8Array[]>,
   td: TextDecoder,
 ): Promise<Record<string, unknown>> {
-  const chunksByTransfer = new Map<string, { index: number; total: number; bytes_b64u: string }[]>();
+  const chunks_by_transfer = new Map<string, { index: number; total: number; bytes_b64u: string }[]>();
   for (let i = 0; i < 600; i++) {
     await settle();
     const q = arrived.get(end as never) as Uint8Array[] | undefined;
@@ -641,40 +641,40 @@ async function collectTunnelResponse(
         try {
           parsed = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          throw new Error(`expected JSON frame for ${wantId}`);
+          throw new Error(`expected JSON frame for ${want_id}`);
         }
         if (typeof parsed["transfer"] === "string") {
           const transfer = parsed["transfer"] as string;
-          const list = chunksByTransfer.get(transfer) ?? [];
+          const list = chunks_by_transfer.get(transfer) ?? [];
           list.push({
             index: parsed["index"] as number,
             total: parsed["total"] as number,
             bytes_b64u: parsed["bytes_b64u"] as string,
           });
-          chunksByTransfer.set(transfer, list);
+          chunks_by_transfer.set(transfer, list);
           const first = list[0];
           if (first && list.length === first.total) {
             list.sort((a, b) => a.index - b.index);
             const bytes = Buffer.concat(list.map((c) => Buffer.from(c.bytes_b64u, "base64url")));
             const resp = JSON.parse(Buffer.from(bytes).toString("utf8")) as Record<string, unknown>;
-            if (resp["id"] === wantId) return resp;
-            chunksByTransfer.delete(transfer);
+            if (resp["id"] === want_id) return resp;
+            chunks_by_transfer.delete(transfer);
           }
           continue;
         }
-        if (parsed["id"] === wantId) return parsed;
+        if (parsed["id"] === want_id) return parsed;
       }
     }
   }
-  throw new Error(`stall: wanted TunnelResponse ${wantId}`);
+  throw new Error(`stall: wanted TunnelResponse ${want_id}`);
 }
 
 // Collect one stream-channel response by id, draining live $events (and a
 // terminal $event end) that may be queued ahead of it. Never assumes the
 // first inbound frame after the request is its response.
-async function collectStreamResponse(
+async function collect_stream_response(
   end: { ch: unknown; channel: string },
-  wantId: string,
+  want_id: string,
   settle: () => Promise<void>,
   arrived: Map<unknown, Uint8Array[]>,
   td: TextDecoder,
@@ -689,12 +689,12 @@ async function collectStreamResponse(
         try {
           parsed = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          throw new Error(`expected JSON frame for ${wantId}`);
+          throw new Error(`expected JSON frame for ${want_id}`);
         }
         if (parsed["$event"] !== undefined) continue;
-        if (parsed["id"] === wantId) return parsed;
+        if (parsed["id"] === want_id) return parsed;
       }
     }
   }
-  throw new Error(`stall: wanted stream response ${wantId}`);
+  throw new Error(`stall: wanted stream response ${want_id}`);
 }

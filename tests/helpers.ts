@@ -22,8 +22,8 @@ export interface CoreKey {
   jwk_public: { kty: "OKP"; crv: "Ed25519"; x: string };
 }
 
-export function test_core_key(seedByte = 0x42): CoreKey {
-  const sk = new Uint8Array(32).fill(seedByte);
+export function test_core_key(seed_byte = 0x42): CoreKey {
+  const sk = new Uint8Array(32).fill(seed_byte);
   sk[0] = (sk[0] ?? 0) ^ 0x01;
   const pk = ed25519.getPublicKey(sk);
   return {
@@ -43,7 +43,7 @@ export interface GrantOpts {
   iat?: number;
   nbf?: number;
   exp?: number;
-  extraClaims?: Record<string, unknown>;
+  extra_claims?: Record<string, unknown>;
   cnf_sk?: Uint8Array; // defaults to fresh key
   kid?: string | null;
   alg?: string;
@@ -61,7 +61,7 @@ export async function mint_grant(
   const iat = opts.iat ?? Math.floor(Date.now() / 1000);
   const nbf = opts.nbf ?? iat;
   const jti = opts.jti ?? `test-${bytes_to_hex(ed25519.utils.randomSecretKey()).slice(0, 16)}`;
-  const coreKey = await importJWK(
+  const core_key = await importJWK(
     {
       kty: "OKP",
       crv: "Ed25519",
@@ -87,7 +87,7 @@ export async function mint_grant(
     // Core v1 has no rev claim: omit unless explicitly requested.
     ...(opts.rev !== undefined ? { rev: opts.rev } : {}),
     jti,
-    ...(opts.extraClaims ?? {}),
+    ...(opts.extra_claims ?? {}),
   })
     .setProtectedHeader(header)
     .setIssuer(opts.iss ?? TEST_ISS)
@@ -95,7 +95,7 @@ export async function mint_grant(
     .setIssuedAt(iat)
     .setNotBefore(nbf)
     .setExpirationTime(opts.exp ?? iat + 120)
-    .sign(coreKey);
+    .sign(core_key);
   return { jwt, jti, cnf_sk, cnf_pk };
 }
 
@@ -185,9 +185,9 @@ export function make_room(
   // second boundary would (correctly) reject as not-yet-valid. Production
   // uses live time and never sees this; the offset only absorbs test
   // scheduling jitter, never test assertions (all advances are relative).
-  startMs = Date.now() + 1000,
+  start_ms = Date.now() + 1000,
 ): RoomHarness {
-  const now_ms = { t: startMs };
+  const now_ms = { t: start_ms };
   const room = new RoomState(account, machine, verify, () => now_ms.t);
   return { room, now_ms, advance: (ms: number) => (now_ms.t += ms) };
 }

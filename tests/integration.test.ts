@@ -95,12 +95,12 @@ describe("end-to-end through the room", () => {
     try {
       const forge_cnf = new_ed25519_keypair(); // enrolled machine key (stable)
       const editor_cnf = new_ed25519_keypair(); // ephemeral per-grant key
-      const forgeGrant = await mint_grant(core, {
+      const forge_grant = await mint_grant(core, {
         role: "forge", scope: ["relay:connect", "forge:execute", "machine:sync"], cnf_sk: forge_cnf.sk,
       });
-      const editorGrant = await mint_grant(core, { role: "client", scope: ["relay:connect", "forge:execute"], cnf_sk: editor_cnf.sk });
-      const forge_mat: GrantMaterial = { jwt: forgeGrant.jwt, jti: forgeGrant.jti, cnf_sk: forge_cnf.sk };
-      const editor_mat: GrantMaterial = { jwt: editorGrant.jwt, jti: editorGrant.jti, cnf_sk: editor_cnf.sk };
+      const editor_grant = await mint_grant(core, { role: "client", scope: ["relay:connect", "forge:execute"], cnf_sk: editor_cnf.sk });
+      const forge_mat: GrantMaterial = { jwt: forge_grant.jwt, jti: forge_grant.jti, cnf_sk: forge_cnf.sk };
+      const editor_mat: GrantMaterial = { jwt: editor_grant.jwt, jti: editor_grant.jti, cnf_sk: editor_cnf.sk };
 
       const forge_inbox: Uint8Array[] = [];
       const editor_inbox: Uint8Array[] = [];
@@ -123,10 +123,10 @@ describe("end-to-end through the room", () => {
         { jwks_url: TEST_JWKS_URL, expected_iss: TEST_ISS, expected_aud: TEST_AUD, max_ttl_sec: 300 },
         stub_fetch({ keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID }] }),
       );
-      const editorCh = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
-        cnf_sign_key: editor_cnf.sk, expected_forge_cnf: forge_cnf.pk, own_grant_jwt: editorGrant.jwt, ctx: CTX,
+      const editor_ch = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
+        cnf_sign_key: editor_cnf.sk, expected_forge_cnf: forge_cnf.pk, own_grant_jwt: editor_grant.jwt, ctx: CTX,
       });
-      const forgeCh = SecureChannel.accept(static_keypair_from_secret(random_bytes(32)), {
+      const forge_ch = SecureChannel.accept(static_keypair_from_secret(random_bytes(32)), {
         cnf_sign_key: forge_cnf.sk, verify_channel_jwt: verify_jwt, ctx: CTX,
       });
 
@@ -146,24 +146,24 @@ describe("end-to-end through the room", () => {
       };
 
       editor_link.open("exec-1");
-      for (let i = 0; i < 30 && (!editorCh.is_open() || !forgeCh.is_open()); i++) {
-        await send_all(editor_link, editorCh, editor_inbox);
-        await send_all(forge_link, forgeCh, forge_inbox);
+      for (let i = 0; i < 30 && (!editor_ch.is_open() || !forge_ch.is_open()); i++) {
+        await send_all(editor_link, editor_ch, editor_inbox);
+        await send_all(forge_link, forge_ch, forge_inbox);
       }
-      expect(editorCh.is_open()).toBe(true);
-      expect(forgeCh.is_open()).toBe(true);
-      expect(editorCh.noise.handshake_hash_hex()).toBe(forgeCh.noise.handshake_hash_hex());
+      expect(editor_ch.is_open()).toBe(true);
+      expect(forge_ch.is_open()).toBe(true);
+      expect(editor_ch.noise.handshake_hash_hex()).toBe(forge_ch.noise.handshake_hash_hex());
 
       const SECRET = "agent-transcript-bytes: run echo pwned";
-      editorCh.queue_app(SECRET);
-      await send_all(editor_link, editorCh, editor_inbox);
-      const at_forge = (await send_all(forge_link, forgeCh, forge_inbox)).filter((r) => r !== null);
+      editor_ch.queue_app(SECRET);
+      await send_all(editor_link, editor_ch, editor_inbox);
+      const at_forge = (await send_all(forge_link, forge_ch, forge_inbox)).filter((r) => r !== null);
       expect(at_forge.length).toBe(1);
       expect(new TextDecoder().decode(at_forge[0] as Uint8Array)).toBe(SECRET);
 
-      forgeCh.queue_app("result: exit 0");
-      await send_all(forge_link, forgeCh, forge_inbox);
-      const at_editor = (await send_all(editor_link, editorCh, editor_inbox)).filter((r) => r !== null);
+      forge_ch.queue_app("result: exit 0");
+      await send_all(forge_link, forge_ch, forge_inbox);
+      const at_editor = (await send_all(editor_link, editor_ch, editor_inbox)).filter((r) => r !== null);
       expect(at_editor.length).toBe(1);
       expect(new TextDecoder().decode(at_editor[0] as Uint8Array)).toBe("result: exit 0");
 
@@ -174,7 +174,7 @@ describe("end-to-end through the room", () => {
       expect(room_sees_plaintext).toBe(false);
 
       // Revocation closes the live editor connection via the key list.
-      expect(room.set_revocations([], [Buffer.from(editorGrant.cnf_pk).toString("base64url")])).toBe(true);
+      expect(room.set_revocations([], [Buffer.from(editor_grant.cnf_pk).toString("base64url")])).toBe(true);
       expect(room.presence().clients).toBe(0);
     } finally {
       FakeWS.rooms.delete("acct1/forge1");

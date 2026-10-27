@@ -53,7 +53,7 @@ describe("portal origin normalization", () => {
 });
 
 describe("preflight + response headers (pure)", () => {
-  const preflightReq = (origin: string | null, extra: Record<string, string> = {}) =>
+  const preflight_req = (origin: string | null, extra: Record<string, string> = {}) =>
     new Request("https://relay.invalid/v1/presence/acct1/mch1", {
       method: "OPTIONS",
       headers: {
@@ -65,7 +65,7 @@ describe("preflight + response headers (pure)", () => {
     });
 
   it("answers allowed preflights with a tight allow-list", () => {
-    const res = cors_preflight(preflightReq(PORTAL), /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, PORTAL);
+    const res = cors_preflight(preflight_req(PORTAL), /^\/(v1\/presence\/[^/]+\/[^/]+|v1\/health)$/, PORTAL);
     expect(res).not.toBeNull();
     expect(res!.status).toBe(204);
     expect(res!.headers.get("Access-Control-Allow-Origin")).toBe(PORTAL);
@@ -76,14 +76,14 @@ describe("preflight + response headers (pure)", () => {
   });
 
   it("refuses disallowed origins, wrong methods, and excess headers", () => {
-    expect(cors_preflight(preflightReq(EVIL), /./, PORTAL)).toBeNull();
-    expect(cors_preflight(preflightReq(null), /./, PORTAL)).toBeNull();
-    expect(cors_preflight(preflightReq(PORTAL), /./, null)).toBeNull();
-    expect(cors_preflight(preflightReq(PORTAL, { "Access-Control-Request-Method": "DELETE" }), /./, PORTAL)).toBeNull();
+    expect(cors_preflight(preflight_req(EVIL), /./, PORTAL)).toBeNull();
+    expect(cors_preflight(preflight_req(null), /./, PORTAL)).toBeNull();
+    expect(cors_preflight(preflight_req(PORTAL), /./, null)).toBeNull();
+    expect(cors_preflight(preflight_req(PORTAL, { "Access-Control-Request-Method": "DELETE" }), /./, PORTAL)).toBeNull();
     expect(
-      cors_preflight(preflightReq(PORTAL, { "Access-Control-Request-Headers": "authorization, x-evil" }), /./, PORTAL),
+      cors_preflight(preflight_req(PORTAL, { "Access-Control-Request-Headers": "authorization, x-evil" }), /./, PORTAL),
     ).toBeNull();
-    expect(cors_preflight(preflightReq(PORTAL), /^\/other/, PORTAL)).toBeNull();
+    expect(cors_preflight(preflight_req(PORTAL), /^\/other/, PORTAL)).toBeNull();
   });
 
   it("reflects only the allowed origin on actual responses", () => {
@@ -120,20 +120,20 @@ describe("websocket origin gate (pure)", () => {
 // ---------------------------------------------------------------------------
 
 let mf: Miniflare;
-let jwksServer: ReturnType<typeof createServer>;
+let jwks_server: ReturnType<typeof createServer>;
 let base = "";
 const core = test_core_key();
 const PORTAL_HTTP = "http://127.0.0.1:18091";
 
 beforeAll(async () => {
-  jwksServer = createServer((_req, res) => {
+  jwks_server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       keys: [{ kty: "OKP", crv: "Ed25519", x: Buffer.from(core.pk).toString("base64url"), kid: TEST_KID, alg: "EdDSA", use: "sig" }],
     }));
   });
-  await new Promise<void>((r) => jwksServer.listen(0, "127.0.0.1", () => r()));
-  const jwksPort = (jwksServer.address() as AddressInfo).port;
+  await new Promise<void>((r) => jwks_server.listen(0, "127.0.0.1", () => r()));
+  const jwks_port = (jwks_server.address() as AddressInfo).port;
 
   await build({
     entryPoints: ["src/index.ts"],
@@ -150,11 +150,11 @@ beforeAll(async () => {
     scriptPath: "dist/worker-cors.mjs",
     durableObjects: { MACHINE_ROOM: "MachineRoom" },
     bindings: {
-      CORE_JWKS_URL: `http://127.0.0.1:${jwksPort}/jwks.json`,
+      CORE_JWKS_URL: `http://127.0.0.1:${jwks_port}/jwks.json`,
       CORE_ISS: TEST_ISS,
       RELAY_AUD: TEST_AUD,
       GRANT_MAX_TTL_S: "300",
-      CORE_REVOCATIONS_URL: `http://127.0.0.1:${jwksPort}/v1/grants/revocations`,
+      CORE_REVOCATIONS_URL: `http://127.0.0.1:${jwks_port}/v1/grants/revocations`,
       REVOCATION_POLL_MS: "60000",
       RELAY_PORTAL_ORIGIN: PORTAL_HTTP,
     },
@@ -164,7 +164,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mf?.dispose();
-  jwksServer?.close();
+  jwks_server?.close();
 });
 
 function dispatch(path: string, init: { method?: string; headers?: Record<string, string> }): Promise<Response> {

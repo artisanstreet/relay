@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { accessSync, constants } from "node:fs";
 import { chromium, type Browser, type BrowserContext } from "playwright-core";
-import { setupBrowserHarness, type BrowserHarness } from "./harness.ts";
+import { setup_browser_harness, type BrowserHarness } from "./harness.ts";
 import { EditorLink, SecureChannel } from "../../src/client.ts";
 import type { GrantMaterial } from "../../src/client.ts";
 import { static_keypair_from_secret } from "../../src/channel.ts";
@@ -28,7 +28,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { randomBytes as random_bytes } from "@noble/hashes/utils.js";
 import { api } from "../../../core/tests/helpers/http.ts";
 
-function findChromium(): string | null {
+function find_chromium(): string | null {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
   const home = process.env.HOME ?? "";
   const cands = [
@@ -47,14 +47,14 @@ function findChromium(): string | null {
   return null;
 }
 
-const CHROME = findChromium();
-const describeBrowser = CHROME ? describe : describe.skip;
+const CHROME = find_chromium();
+const describe_browser = CHROME ? describe : describe.skip;
 
 let h: BrowserHarness;
 let browser: Browser | null = null;
 
 beforeAll(async () => {
-  h = await setupBrowserHarness("browser-interop@example.invalid");
+  h = await setup_browser_harness("browser-interop@example.invalid");
   if (CHROME) {
     browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
   } else {
@@ -67,16 +67,16 @@ afterAll(async () => {
   await h?.close().catch(() => undefined);
 }, 120_000);
 
-async function portalContext(): Promise<BrowserContext> {
+async function portal_context(): Promise<BrowserContext> {
   const ctx = await browser!.newContext();
   await ctx.addInitScript((base: string) => {
     localStorage.setItem("ast-core:relay-ws", base.replace(/^http/, "ws"));
     localStorage.setItem("ast-core:relay-http", base);
-  }, h.relayBase);
+  }, h.relay_base);
   return ctx;
 }
 
-describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
+describe_browser("portal in real Chromium (cross-origin Relay)", () => {
   it("serves the shell with the cross-origin CSP", async () => {
     // "/" (app entry) and unknown app paths both serve index.html through
     // Core's real shell branch; hashed assets keep upstream headers.
@@ -85,36 +85,36 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     // https+wss in production) — never hardcoded.
     // script-src carries 'wasm-unsafe-eval' (sodium-javascript compiles
     // Wasm at startup) and never bare 'unsafe-eval'.
-    const relayUrl = new URL(h.relayBase);
-    const httpScheme = relayUrl.protocol === "https:" ? "https" : "http";
-    const wsScheme = relayUrl.protocol === "https:" ? "wss" : "ws";
+    const relay_url = new URL(h.relay_base);
+    const http_scheme = relay_url.protocol === "https:" ? "https" : "http";
+    const ws_scheme = relay_url.protocol === "https:" ? "wss" : "ws";
     for (const path of ["/", "/portal-deep-link"]) {
-      const res = await fetch(`${h.portalBase}${path}`);
+      const res = await fetch(`${h.portal_base}${path}`);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type") ?? "").toContain("text/html");
       const csp = res.headers.get("content-security-policy") ?? "";
       expect(csp).toContain("connect-src 'self'");
-      expect(csp).toContain(`${httpScheme}://${relayUrl.host}`);
-      expect(csp).toContain(`${wsScheme}://${relayUrl.host}`);
+      expect(csp).toContain(`${http_scheme}://${relay_url.host}`);
+      expect(csp).toContain(`${ws_scheme}://${relay_url.host}`);
       expect(csp).toContain("img-src 'self' data: blob:");
       expect(csp).toContain("frame-ancestors 'none'");
       expect(csp).toContain("'wasm-unsafe-eval'");
       expect(csp).not.toMatch(/'unsafe-eval'(?!.*wasm)/);
       expect(csp).not.toContain("*");
     }
-    const js = await fetch(`${h.portalBase}/index.html`);
+    const js = await fetch(`${h.portal_base}/index.html`);
     expect(js.headers.get("content-type")).toContain("text/html");
   });
 
   it("signs in via the real mailed link, lists the enrolled machine", async () => {
     // Positive discovery MUST use the enrolled harness email: the machine
     // belongs to that account and accounts stay isolated.
-    const email = h.harnessEmail;
-    const ctx = await portalContext();
+    const email = h.harness_email;
+    const ctx = await portal_context();
     const tab1 = await ctx.newPage();
     tab1.on("console", (m) => console.log(`[browser console] ${m.type()}: ${m.text().slice(0, 300)}`));
     tab1.on("pageerror", (e) => console.log(`[browser pageerror] ${String(e).slice(0, 300)}`));
-    await tab1.goto(`${h.portalBase}/#/signin`);
+    await tab1.goto(`${h.portal_base}/#/signin`);
     // The shell div is empty (zero-size, "hidden") until JS renders; wait
     // for the real sign-in field, not the shell container.
     await tab1.waitForSelector("#signin-email", { timeout: 30_000 });
@@ -123,7 +123,7 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     await tab1.waitForSelector("#signin-progress:not([hidden])", { timeout: 30_000 });
     const token = h.rig.token_for_email(email);
     const tab2 = await ctx.newPage();
-    await tab2.goto(`${h.portalBase}/v1/auth/magic/confirm?token=${token}`);
+    await tab2.goto(`${h.portal_base}/v1/auth/magic/confirm?token=${token}`);
     await tab2.waitForURL(/#\/approve\?token=/, { timeout: 30_000 });
     await tab2.getByRole("button", { name: "Approve this request" }).click();
     await tab2.waitForSelector("text=finish in the tab that requested the link", { timeout: 30_000 });
@@ -131,7 +131,7 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     await tab1.waitForURL(/#\/account/, { timeout: 30_000 });
     await tab1.waitForSelector(`text=${email}`, { timeout: 30_000 });
 
-    await tab1.goto(`${h.portalBase}/#/machines`);
+    await tab1.goto(`${h.portal_base}/#/machines`);
     await tab1.waitForSelector("text=interop-forge", { timeout: 30_000 });
     // Cross-origin presence fetch WITH Authorization: the browser sends a
     // CORS preflight; the Relay answers with the exact portal origin.
@@ -143,25 +143,25 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
 
   it("connects Noise E2E to the production Forge and reads /state", async () => {
     // Same harness account: the Forge machine is enrolled to it.
-    const email = h.harnessEmail;
-    const ctx = await portalContext();
+    const email = h.harness_email;
+    const ctx = await portal_context();
     const tab1 = await ctx.newPage();
     tab1.on("console", (m) => console.log(`[browser console] ${m.type()}: ${m.text().slice(0, 300)}`));
     tab1.on("pageerror", (e) => console.log(`[browser pageerror] ${String(e).slice(0, 300)}`));
-    await tab1.goto(`${h.portalBase}/#/signin`);
+    await tab1.goto(`${h.portal_base}/#/signin`);
     await tab1.waitForSelector("#signin-email", { timeout: 30_000 });
     await tab1.fill("#signin-email", email);
     await tab1.click("form button[type=submit]");
     await tab1.waitForSelector("#signin-progress:not([hidden])", { timeout: 30_000 });
     const token = h.rig.token_for_email(email);
     const tab2 = await ctx.newPage();
-    await tab2.goto(`${h.portalBase}/v1/auth/magic/confirm?token=${token}`);
+    await tab2.goto(`${h.portal_base}/v1/auth/magic/confirm?token=${token}`);
     await tab2.waitForURL(/#\/approve\?token=/, { timeout: 30_000 });
     await tab2.getByRole("button", { name: "Approve this request" }).click();
     await tab1.getByRole("button", { name: "Finish sign-in" }).click();
     await tab1.waitForURL(/#\/account/, { timeout: 30_000 });
 
-    await tab1.goto(`${h.portalBase}/#/forge`);
+    await tab1.goto(`${h.portal_base}/#/forge`);
     await tab1.getByRole("button", { name: "Connect encrypted channel" }).click();
     await tab1.waitForSelector("text=Encrypted channel open", { timeout: 60_000 });
     // Real Rust Hub snapshot over a real Noise channel (fresh Hub: the
@@ -176,32 +176,32 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     // grant must belong to the owning account.
     const { ed25519: ed2 } = await import("@noble/curves/ed25519.js");
     const cnf_sk = ed2.utils.randomSecretKey();
-    const cnfX = Buffer.from(ed2.getPublicKey(cnf_sk)).toString("base64url");
+    const cnf_x = Buffer.from(ed2.getPublicKey(cnf_sk)).toString("base64url");
     const eg = await api(h.rig.app, "POST", "/v1/grants/issue", {
-      headers: { cookie: h.sessionCookie, origin: "http://localhost" },
+      headers: { cookie: h.session_cookie, origin: "http://localhost" },
       raw_body: JSON.stringify({
         audience: "ast-relay",
         scope: ["relay:connect"],
         ttlSeconds: 300,
-        targetMachineId: h.machineId,
-        cnf: { kty: "OKP", crv: "Ed25519", x: cnfX },
+        targetMachineId: h.machine_id,
+        cnf: { kty: "OKP", crv: "Ed25519", x: cnf_x },
       }),
     });
     expect(eg.status).toBe(200);
-    const evilJwt = (eg.json as { token: string }).token;
+    const evil_jwt = (eg.json as { token: string }).token;
 
     const evil = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/html" });
       res.end("<!doctype html><html><body>evil</body></html>");
     });
     await new Promise<void>((r) => evil.listen(0, "127.0.0.1", () => r()));
-    const evilBase = `http://127.0.0.1:${(evil.address() as AddressInfo).port}`;
+    const evil_base = `http://127.0.0.1:${(evil.address() as AddressInfo).port}`;
     const ctx = await browser!.newContext();
     try {
       const page = await ctx.newPage();
-      await page.goto(`${evilBase}/`);
+      await page.goto(`${evil_base}/`);
       // Control: the endpoint itself is fine (server-side 200).
-      const direct = await fetch(`${h.relayBase}/v1/health`);
+      const direct = await fetch(`${h.relay_base}/v1/health`);
       expect(direct.status).toBe(200);
       // Same request from a disallowed origin: the browser must block the
       // read (no ACAO), even though the server answers 200.
@@ -212,21 +212,21 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
         } catch (e) {
           return `blocked: ${(e as Error).name}`;
         }
-      }, `${h.relayBase}/v1/health`);
+      }, `${h.relay_base}/v1/health`);
       expect(blocked).toMatch(/^blocked: /);
       // Authenticated cross-origin read: also blocked (proves the block is
       // CORS, evaluated before any grant logic matters to the page).
-      const blockedAuth = await page.evaluate(async ([url, jwt]: [string, string]) => {
+      const blocked_auth = await page.evaluate(async ([url, jwt]: [string, string]) => {
         try {
           const r = await fetch(url, { headers: { Authorization: `Bearer ${jwt}` } });
           return `readable (BAD): ${r.status}`;
         } catch (e) {
           return `blocked: ${(e as Error).name}`;
         }
-      }, [`${h.relayBase}/v1/presence/${h.accountId}/${h.machineId}`, evilJwt] as [string, string]);
-      expect(blockedAuth).toMatch(/^blocked: /);
+      }, [`${h.relay_base}/v1/presence/${h.account_id}/${h.machine_id}`, evil_jwt] as [string, string]);
+      expect(blocked_auth).toMatch(/^blocked: /);
       // WebSocket upgrade from a disallowed origin is refused pre-upgrade.
-      const wsResult = await page.evaluate(async (url: string) => {
+      const ws_result = await page.evaluate(async (url: string) => {
         return new Promise<string>((resolve) => {
           const ws = new WebSocket(url);
           const done = (s: string) => {
@@ -249,8 +249,8 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
             done("closed");
           });
         });
-      }, `${h.relayWsBase}/v1/route/${h.accountId}/${h.machineId}`);
-      expect(["errored", "closed"]).toContain(wsResult);
+      }, `${h.relay_ws_base}/v1/route/${h.account_id}/${h.machine_id}`);
+      expect(["errored", "closed"]).toContain(ws_result);
     } finally {
       await ctx.close();
       await new Promise<void>((r) => evil.close(() => r()));
@@ -261,17 +261,17 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
 describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () => {
   it("SUBSCRIBEs, receives Hello $event, and UNSUBSCRIBEs", async () => {
     // A Node-side session on this harness owned by the SAME harness
-    // account (owns h.machineId): accounts stay isolated.
-    const cookie = h.sessionCookie;
+    // account (owns h.machine_id): accounts stay isolated.
+    const cookie = h.session_cookie;
 
-    const editorSk = ed25519.utils.randomSecretKey();
-    const editorX = Buffer.from(ed25519.getPublicKey(editorSk)).toString("base64url");
+    const editor_sk = ed25519.utils.randomSecretKey();
+    const editor_x = Buffer.from(ed25519.getPublicKey(editor_sk)).toString("base64url");
     const eb = JSON.stringify({
       audience: "ast-relay",
       scope: ["relay:connect", "forge:execute", "machine:sync"],
       ttlSeconds: 300,
-      targetMachineId: h.machineId,
-      cnf: { kty: "OKP", crv: "Ed25519", x: editorX },
+      targetMachineId: h.machine_id,
+      cnf: { kty: "OKP", crv: "Ed25519", x: editor_x },
     });
     const eg = await api(h.rig.app, "POST", "/v1/grants/issue", {
       headers: { cookie, origin: "http://localhost" },
@@ -279,14 +279,14 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
     });
     expect(eg.status).toBe(200);
     const editor_jwt = (eg.json as { token: string }).token;
-    const editorJti = JSON.parse(Buffer.from(editor_jwt.split(".")[1] as string, "base64url").toString()).jti as string;
+    const editor_jti = JSON.parse(Buffer.from(editor_jwt.split(".")[1] as string, "base64url").toString()).jti as string;
 
     const me = await api(h.rig.app, "GET", "/v1/machines", {
       headers: { cookie, origin: "http://localhost" },
     });
     expect(me.status).toBe(200);
     const machines = (me.json as { machines?: { id: string; publicKey: { x: string } }[] }).machines ?? [];
-    const forge_cnf = Buffer.from((machines.find((m) => m.id === h.machineId)?.publicKey.x ?? "") as string, "base64url");
+    const forge_cnf = Buffer.from((machines.find((m) => m.id === h.machine_id)?.publicKey.x ?? "") as string, "base64url");
     expect(forge_cnf.length).toBe(32);
 
     const { EditorLink, SecureChannel } = await import("../../src/client.ts");
@@ -294,16 +294,16 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
     const { randomBytes: random_bytes } = await import("@noble/hashes/utils.js");
     const inbox: Uint8Array[] = [];
     const link = new EditorLink(
-      `${h.relayWsBase}/v1/route/${h.accountId}/${h.machineId}`,
-      { jwt: editor_jwt, jti: editorJti, cnf_sk: editorSk },
+      `${h.relay_ws_base}/v1/route/${h.account_id}/${h.machine_id}`,
+      { jwt: editor_jwt, jti: editor_jti, cnf_sk: editor_sk },
       { on_data: (_c, _s, body) => inbox.push(body) },
       WebSocket as unknown as typeof globalThis.WebSocket,
     );
     try {
       await link.connect();
-      const ctx = { account: h.accountId, machine: h.machineId, channel: "interop-stream" };
+      const ctx = { account: h.account_id, machine: h.machine_id, channel: "interop-stream" };
       const ch = SecureChannel.initiate(static_keypair_from_secret(random_bytes(32)), {
-        cnf_sign_key: editorSk,
+        cnf_sign_key: editor_sk,
         expected_forge_cnf: new Uint8Array(forge_cnf),
         own_grant_jwt: editor_jwt,
         ctx,
@@ -311,7 +311,7 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
       const pump = (): void => {
         for (const b of ch.pump_outbound()) link.send_opaque(ctx.channel, b);
       };
-      const takeApp = (): Uint8Array[] => {
+      const take_app = (): Uint8Array[] => {
         const out: Uint8Array[] = [];
         for (const raw of inbox.splice(0, inbox.length)) {
           const app = ch.handle_incoming(raw);
@@ -324,27 +324,27 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
       const deadline = Date.now() + 60_000;
       while (!ch.is_open() && Date.now() < deadline) {
         pump();
-        takeApp();
+        take_app();
         await new Promise((r) => setTimeout(r, 25));
       }
       expect(ch.is_open(), "Noise channel open").toBe(true);
 
-      const pendingEvents: unknown[] = [];
-      const callById = async (obj: { id: string } & Record<string, unknown>, label: string): Promise<unknown> => {
+      const pending_events: unknown[] = [];
+      const call_by_id = async (obj: { id: string } & Record<string, unknown>, label: string): Promise<unknown> => {
         ch.queue_app(JSON.stringify(obj));
         pump();
         const dl = Date.now() + 60_000;
         const backlog: unknown[] = [];
         for (;;) {
           pump();
-          for (const b of takeApp()) backlog.push(JSON.parse(new TextDecoder().decode(b)) as unknown);
+          for (const b of take_app()) backlog.push(JSON.parse(new TextDecoder().decode(b)) as unknown);
           const hit = backlog.findIndex(
             (o) => typeof o === "object" && o !== null && (o as Record<string, unknown>)["id"] === obj.id,
           );
           if (hit >= 0) {
             const [found] = backlog.splice(hit, 1);
             // Keep any interleaved $events for the caller to drain.
-            for (const rest of backlog.splice(0, backlog.length)) pendingEvents.push(rest);
+            for (const rest of backlog.splice(0, backlog.length)) pending_events.push(rest);
             return found;
           }
           if (Date.now() > dl) throw new Error(`stall waiting for ${label}`);
@@ -352,13 +352,13 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
         }
       };
 
-      const subAck = (await callById(
+      const sub_ack = (await call_by_id(
         { id: "bsub1", method: "SUBSCRIBE", path: "/events?since=0" },
         "SUBSCRIBE ack",
       )) as Record<string, unknown>;
-      const ackBody = (subAck["body"] as Record<string, unknown>) ?? {};
-      const streamId = ((ackBody["$stream"] ?? {}) as Record<string, unknown>)["stream"];
-      expect(typeof streamId).toBe("string");
+      const ack_body = (sub_ack["body"] as Record<string, unknown>) ?? {};
+      const stream_id = ((ack_body["$stream"] ?? {}) as Record<string, unknown>)["stream"];
+      expect(typeof stream_id).toBe("string");
 
       // $event frames stream onward; the Hello envelope arrives first —
       // usually alongside the ack, otherwise within seconds. Drain anything
@@ -366,13 +366,13 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
       const pending = await (async () => {
         const dl = Date.now() + 30_000;
         for (;;) {
-          const queued = pendingEvents.splice(0, pendingEvents.length);
+          const queued = pending_events.splice(0, pending_events.length);
           const ev = queued
             .map((b) => b as Record<string, unknown>)
             .find((o) => typeof o === "object" && o !== null && "$event" in o);
           if (ev) return ev;
           pump();
-          const apps = takeApp();
+          const apps = take_app();
           const live = apps
             .map((b) => JSON.parse(new TextDecoder().decode(b)) as Record<string, unknown>)
             .find((o) => typeof o === "object" && o !== null && "$event" in o);
@@ -381,10 +381,10 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
           await new Promise((r) => setTimeout(r, 25));
         }
       })();
-      expect(((pending as Record<string, unknown>)["$event"] as Record<string, unknown>)["stream"]).toBe(streamId);
+      expect(((pending as Record<string, unknown>)["$event"] as Record<string, unknown>)["stream"]).toBe(stream_id);
 
-      const unsub = (await callById(
-        { id: "bsub3", method: "UNSUBSCRIBE", path: `/events/${streamId as string}` },
+      const unsub = (await call_by_id(
+        { id: "bsub3", method: "UNSUBSCRIBE", path: `/events/${stream_id as string}` },
         "UNSUBSCRIBE ack",
       )) as Record<string, unknown>;
       expect(unsub["status"]).toBe(200);

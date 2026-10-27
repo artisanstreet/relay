@@ -12,7 +12,7 @@ function verifier(core = test_core_key(), max_ttl_sec = 300) {
   );
 }
 
-function tamperHeaderAlg(jwt: string, alg: string): string {
+function tamper_header_alg(jwt: string, alg: string): string {
   const [h, p, s] = jwt.split(".");
   const hdr = JSON.parse(Buffer.from(h as string, "base64url").toString());
   hdr.alg = alg;
@@ -70,7 +70,7 @@ describe("grant JWT verification", () => {
   it("rejects a non-EdDSA alg header", async () => {
     const core = test_core_key();
     const g = await mint_grant(core);
-    await expect(verifier(core)(tamperHeaderAlg(g.jwt, "none"))).rejects.toThrow();
+    await expect(verifier(core)(tamper_header_alg(g.jwt, "none"))).rejects.toThrow();
   });
 
   it("rejects missing kid", async () => {
@@ -81,7 +81,7 @@ describe("grant JWT verification", () => {
 
   it("rejects unknown top-level claims (strict v1)", async () => {
     const core = test_core_key();
-    const g = await mint_grant(core, { extraClaims: { future_field: "x" } });
+    const g = await mint_grant(core, { extra_claims: { future_field: "x" } });
     await expect(verifier(core)(g.jwt)).rejects.toThrow();
   });
 

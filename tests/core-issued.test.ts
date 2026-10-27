@@ -38,19 +38,19 @@ interface CoreIssued {
   machineProof: { headers: Record<string, string>; method: string; pathAndQuery: string; rawBody: string };
 }
 
-const hasArtifact = existsSync(ARTIFACT);
+const has_artifact = existsSync(ARTIFACT);
 
-function payloadOf(jwt: string): Record<string, unknown> {
+function payload_of(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(jwt.split(".")[1] as string, "base64url").toString());
 }
 
-describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
+describe.runIf(has_artifact)("core-issued artifact (release copy)", () => {
   it("verifies the Core-signed grant against the artifact JWKS", async () => {
     const fx = JSON.parse(readFileSync(ARTIFACT, "utf8")) as CoreIssued;
     for (const f of ["grant", "issuer", "audience", "jwks", "revocations", "accountId", "machineId"] as const) {
       expect(fx[f], `artifact field ${f}`).toBeDefined();
     }
-    const unverified = payloadOf(fx.grant);
+    const unverified = payload_of(fx.grant);
     const now_sec = (unverified["iat"] as number) + 60; // inside the artifact TTL
     const verify = create_grant_verifier(
       { jwks_url: "https://core.invalid/jwks", expected_iss: fx.issuer, expected_aud: fx.audience, max_ttl_sec: 300 },
@@ -100,7 +100,7 @@ describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
       { jwks_url: "https://core.invalid/jwks", expected_iss: fx.issuer, expected_aud: fx.audience, max_ttl_sec: 300 },
       stub_fetch(fx.jwks),
     );
-    const now_sec = (payloadOf(fx.grant)["iat"] as number) + 60;
+    const now_sec = (payload_of(fx.grant)["iat"] as number) + 60;
     const g = await verify(fx.grant, now_sec);
 
     // Clean room (artifact revocations are empty): hello reaches challenge.
@@ -121,7 +121,7 @@ describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
   });
 });
 
-describe.skipIf(hasArtifact)("core-issued artifact (release copy)", () => {
+describe.skipIf(has_artifact)("core-issued artifact (release copy)", () => {
   it("WAITING on Core: core/fixtures/v1/core-issued.json absent", () => {
     console.log("skip: run scripts/copy-core-fixture.ts once Core emits the artifact");
   });

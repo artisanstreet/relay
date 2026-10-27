@@ -45,8 +45,8 @@ const PLAINTEXT_A = "fixture message initiator to responder";
 const PLAINTEXT_B = "fixture reply responder to initiator";
 
 /** Deterministic curve backend: fixed ephemeral sequence, real DH. */
-function fixed_curve(ephHex: string[]) {
-  const queue = ephHex.map(unhex);
+function fixed_curve(eph_hex: string[]) {
+  const queue = eph_hex.map(unhex);
   return {
     DHLEN: 32,
     PKLEN: 32,
@@ -65,9 +65,9 @@ function fixed_curve(ephHex: string[]) {
   };
 }
 
-function static_pair(privHex: string) {
-  const kp = real_dh.generateKeyPair(unhex(privHex));
-  return { public_key: Uint8Array.from(kp.publicKey), secret_key: Uint8Array.from(unhex(privHex)) };
+function static_pair(priv_hex: string) {
+  const kp = real_dh.generateKeyPair(unhex(priv_hex));
+  return { public_key: Uint8Array.from(kp.publicKey), secret_key: Uint8Array.from(unhex(priv_hex)) };
 }
 
 interface FixtureFile {
@@ -149,23 +149,23 @@ async function build_fixture(): Promise<FixtureFile> {
   init.receive_handshake_message(m2);
   const m3 = init.next_handshake_message();
   resp.receive_handshake_message(m3);
-  const [cInit] = init.take_outbound();
-  if (!(cInit instanceof Uint8Array)) throw new Error("fixture initiator confirm missing");
-  resp.receive_transport(cInit);
+  const [c_init] = init.take_outbound();
+  if (!(c_init instanceof Uint8Array)) throw new Error("fixture initiator confirm missing");
+  resp.receive_transport(c_init);
   await wait_for_phase(resp, "open", "fixture responder confirm (async JWT verify)", 10_000);
-  const [cResp] = resp.take_outbound();
-  if (!(cResp instanceof Uint8Array)) {
+  const [c_resp] = resp.take_outbound();
+  if (!(c_resp instanceof Uint8Array)) {
     throw new Error("fixture responder confirm missing: channel open but no outbound ciphertext");
   }
-  init.receive_transport(cResp);
+  init.receive_transport(c_resp);
   await wait_for_phase(init, "open", "fixture initiator confirm", 10_000);
   if (init.get_phase() !== "open" || resp.get_phase() !== "open") throw new Error("fixture channels did not open");
-  const dataInit = init.seal(new TextEncoder().encode(PLAINTEXT_A));
-  const opened = resp.receive_transport(dataInit.ct);
+  const data_init = init.seal(new TextEncoder().encode(PLAINTEXT_A));
+  const opened = resp.receive_transport(data_init.ct);
   if (new TextDecoder().decode(opened as Uint8Array) !== PLAINTEXT_A) throw new Error("fixture data mismatch");
-  const dataResp = resp.seal(new TextEncoder().encode(PLAINTEXT_B));
-  const openedB = init.receive_transport(dataResp.ct);
-  if (new TextDecoder().decode(openedB as Uint8Array) !== PLAINTEXT_B) throw new Error("fixture data mismatch");
+  const data_resp = resp.seal(new TextEncoder().encode(PLAINTEXT_B));
+  const opened_b = init.receive_transport(data_resp.ct);
+  if (new TextDecoder().decode(opened_b as Uint8Array) !== PLAINTEXT_B) throw new Error("fixture data mismatch");
   return {
     protocol: "Noise_XX_25519_ChaChaPoly_BLAKE2b",
     ctx: { ...CTX },
@@ -180,10 +180,10 @@ async function build_fixture(): Promise<FixtureFile> {
     m2: hex(m2),
     m3: hex(m3),
     handshake_hash: init.handshake_hash_hex() as string,
-    confirm_init_ct: hex(cInit as Uint8Array),
-    confirm_resp_ct: hex(cResp as Uint8Array),
-    data_init_ct: hex(dataInit.ct),
-    data_resp_ct: hex(dataResp.ct),
+    confirm_init_ct: hex(c_init as Uint8Array),
+    confirm_resp_ct: hex(c_resp as Uint8Array),
+    data_init_ct: hex(data_init.ct),
+    data_resp_ct: hex(data_resp.ct),
     plaintext_a: PLAINTEXT_A,
     plaintext_b: PLAINTEXT_B,
   };

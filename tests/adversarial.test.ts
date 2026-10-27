@@ -7,7 +7,7 @@ import { pop_sign } from "../src/e2e.ts";
 import { b64u_encode } from "../src/jwt.ts";
 import { fake_socket, is_challenge, last_sent, make_room, mint_grant, send, test_core_key, test_verifier, wait_for_frame } from "./helpers.ts";
 
-async function nonceOf(s: ReturnType<typeof fake_socket>): Promise<Uint8Array> {
+async function nonce_of(s: ReturnType<typeof fake_socket>): Promise<Uint8Array> {
   const ch = await wait_for_frame(s, is_challenge);
   return Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
 }
@@ -30,7 +30,7 @@ describe("adversaries", () => {
     const s = fake_socket();
     h.room.on_connect("a", s);
     await send(h.room, "a", { v: 1, type: "hello", grant: victim.jwt });
-    const nonce = await nonceOf(s);
+    const nonce = await nonce_of(s);
     const { ed25519 } = await import("@noble/curves/ed25519.js");
     await send(h.room, "a", {
       v: 1, type: "authenticate", jti: victim.jti,
@@ -49,7 +49,7 @@ describe("adversaries", () => {
     await send(h.room, "victim", { v: 1, type: "hello", grant: victim.jwt });
     await send(h.room, "victim", {
       v: 1, type: "authenticate", jti: victim.jti,
-      sig: b64u_encode(pop_sign(victim.cnf_sk, await nonceOf(vs), victim.jti)),
+      sig: b64u_encode(pop_sign(victim.cnf_sk, await nonce_of(vs), victim.jti)),
     });
     expect(vs.closed).toBeNull();
     // Attacker replays the same JWT: rejected at hello, no challenge.
@@ -95,7 +95,7 @@ describe("adversaries", () => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,
-        sig: b64u_encode(pop_sign(g.cnf_sk, await nonceOf(s), g.jti)),
+        sig: b64u_encode(pop_sign(g.cnf_sk, await nonce_of(s), g.jti)),
       });
       return s;
     };
@@ -121,7 +121,7 @@ describe("adversaries", () => {
     await send(h.room, "f", { v: 1, type: "hello", grant: g.jwt });
     await send(h.room, "f", {
       v: 1, type: "authenticate", jti: g.jti,
-      sig: b64u_encode(pop_sign(g.cnf_sk, await nonceOf(s), g.jti)),
+      sig: b64u_encode(pop_sign(g.cnf_sk, await nonce_of(s), g.jti)),
     });
     await send(h.room, "f", { v: 1, type: "open", channel: "ch9" });
     const last = last_sent(s) as { type: string; code?: string };
@@ -138,7 +138,7 @@ describe("adversaries", () => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,
-        sig: b64u_encode(pop_sign(g.cnf_sk, await nonceOf(s), g.jti)),
+        sig: b64u_encode(pop_sign(g.cnf_sk, await nonce_of(s), g.jti)),
       });
       return s;
     };
@@ -162,7 +162,7 @@ describe("adversaries", () => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,
-        sig: b64u_encode(pop_sign(g.cnf_sk, await nonceOf(s), g.jti)),
+        sig: b64u_encode(pop_sign(g.cnf_sk, await nonce_of(s), g.jti)),
       });
       return s;
     };
@@ -197,7 +197,7 @@ describe("adversaries", () => {
     await send(h.room, "c", { v: 1, type: "hello", grant: g.jwt });
     await send(h.room, "c", {
       v: 1, type: "authenticate", jti: g.jti,
-      sig: b64u_encode(pop_sign(g.cnf_sk, await nonceOf(s), g.jti)),
+      sig: b64u_encode(pop_sign(g.cnf_sk, await nonce_of(s), g.jti)),
     });
     h.advance(30_000);
     h.room.tick();
