@@ -179,7 +179,7 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     const cnfX = Buffer.from(ed2.getPublicKey(cnf_sk)).toString("base64url");
     const eg = await api(h.rig.app, "POST", "/v1/grants/issue", {
       headers: { cookie: h.sessionCookie, origin: "http://localhost" },
-      rawBody: JSON.stringify({
+      raw_body: JSON.stringify({
         audience: "ast-relay",
         scope: ["relay:connect"],
         ttlSeconds: 300,
@@ -275,7 +275,7 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
     });
     const eg = await api(h.rig.app, "POST", "/v1/grants/issue", {
       headers: { cookie, origin: "http://localhost" },
-      rawBody: eb,
+      raw_body: eb,
     });
     expect(eg.status).toBe(200);
     const editor_jwt = (eg.json as { token: string }).token;

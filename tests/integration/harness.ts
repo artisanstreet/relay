@@ -200,7 +200,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   const cbody = JSON.stringify({ enrollmentId, accountId, confirmation });
   const done = await api(rig.app, "POST", confirmPath, {
     headers: await machineHeaders(enrollmentId, "POST", confirmPath, cbody),
-    rawBody: cbody,
+    raw_body: cbody,
   });
   if (done.status !== 201) throw new Error(`confirm failed: ${done.text}`);
   const machineId = (done.json as { machineId: string }).machineId;

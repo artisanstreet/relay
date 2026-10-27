@@ -147,7 +147,7 @@ beforeAll(async () => {
   const cbody = JSON.stringify({ enrollmentId, accountId, confirmation });
   const done = await api(rig.app, "POST", confirmPath, {
     headers: await machineHeaders(enrollmentId, forgeSk, "POST", confirmPath, cbody),
-    rawBody: cbody,
+    raw_body: cbody,
   });
   if (done.status !== 201) throw new Error(`confirm failed: ${done.text}`);
   machineId = (done.json as { machineId: string }).machineId;
@@ -337,7 +337,7 @@ describe("production rust seam (serve_account_relay)", () => {
     });
     const eg = await api(rig.app, "POST", "/v1/grants/issue", {
       headers: { cookie: sessionCookie, origin: "http://localhost" },
-      rawBody: ebody,
+      raw_body: ebody,
     });
     expect(eg.status).toBe(200);
     editorGrantJwt = (eg.json as { token: string }).token;
@@ -529,7 +529,7 @@ describe("production rust seam (serve_account_relay)", () => {
     });
     const neg = await api(rig.app, "POST", "/v1/grants/issue", {
       headers: { cookie: sessionCookie, origin: "http://localhost" },
-      rawBody: nativeBody,
+      raw_body: nativeBody,
     });
     expect(neg.status).toBe(200);
     const nativeJwt = (neg.json as { token: string }).token;
