@@ -118,6 +118,19 @@ describe("client send window", () => {
     await expect(Promise.allSettled(parked)).resolves.toBeDefined();
   });
 
+
+/** Real-deadline wait for Noise confirm completion (async JWT verify). */
+async function wait_open(ch: { getPhase(): string }, label: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const got = ch.getPhase();
+    if (got === "open") return;
+    if (got === "closed") throw new Error(`${label}: session closed while waiting for open`);
+    if (Date.now() > deadline) throw new Error(`${label}: timed out waiting for open, stuck at ${got}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
   it("sealedFrameSize exactly predicts sealed bodies (willFit is exact)", async () => {
     const core = testCoreKey();
     const forgeCnf = newEd25519Keypair();
@@ -153,10 +166,11 @@ describe("client send window", () => {
     resp.receiveHandshakeMessage(m3);
     const [cInit] = init.takeOutbound();
     resp.receiveTransport(cInit as Uint8Array);
-    for (let i = 0; i < 50 && resp.getPhase() !== "open"; i++) await new Promise((r) => setImmediate(r));
-    const [cResp] = resp.takeOutbound();
-    init.receiveTransport(cResp as Uint8Array);
-    for (let i = 0; i < 50 && init.getPhase() !== "open"; i++) await new Promise((r) => setImmediate(r));
+    await wait_open(resp, "responder confirm");
+    const taken = resp.takeOutbound();
+    if (taken.length === 0) throw new Error("responder confirm: no outbound after open");
+    init.receiveTransport(taken[0] as Uint8Array);
+    await wait_open(init, "initiator confirm");
     expect(init.getPhase()).toBe("open");
 
     for (const len of [0, 1, 100, 1000, 59999, 60000]) {

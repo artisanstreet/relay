@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { CLOSE_AUTH, CLOSE_BACKPRESSURE, CLOSE_FORBIDDEN, CLOSE_POLICY, CLOSE_REPLACED, CLOSE_REVOKED, MAX_BODY_B64 } from "../src/room.ts";
 import { popSign } from "../src/e2e.ts";
 import { b64uEncode } from "../src/jwt.ts";
-import { fakeSocket, lastSent, makeRoom, mintGrant, send, testCoreKey, testVerifier } from "./helpers.ts";
+import { fakeSocket, is_challenge, lastSent, makeRoom, mintGrant, send, testCoreKey, testVerifier, wait_for_frame } from "./helpers.ts";
 
 void CLOSE_BACKPRESSURE;
 
@@ -37,7 +37,7 @@ describe("room admission", () => {
     h.room.onConnect("c", cs);
     const doAuth = async (id: string, s: ReturnType<typeof fakeSocket>, g: { jwt: string; jti: string; cnfSk: Uint8Array }) => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
-      const ch = lastSent(s) as { nonce: string };
+      const ch = await wait_for_frame(s, is_challenge);
       const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
       await send(h.room, id, { v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) });
     };
@@ -136,7 +136,7 @@ describe("room admission", () => {
       const s = fakeSocket();
       h.room.onConnect(id, s);
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
-      const ch = lastSent(s) as { nonce: string };
+      const ch = await wait_for_frame(s, is_challenge);
       const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
       await send(h.room, id, { v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) });
       return s;
@@ -187,7 +187,7 @@ describe("room routing", () => {
     h.room.onConnect("c", cs);
     const auth = async (id: string, s: ReturnType<typeof fakeSocket>, g: { jwt: string; jti: string; cnfSk: Uint8Array }) => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
-      const ch = lastSent(s) as { nonce: string };
+      const ch = await wait_for_frame(s, is_challenge);
       const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
       await send(h.room, id, { v: 1, type: "authenticate", jti: g.jti, sig: b64uEncode(popSign(g.cnfSk, nonce, g.jti)) });
     };
@@ -241,7 +241,7 @@ describe("room routing", () => {
       const s = fakeSocket();
       h.room.onConnect(id, s);
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
-      const ch = lastSent(s) as { nonce: string };
+      const ch = await wait_for_frame(s, is_challenge);
       const nonce = Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,

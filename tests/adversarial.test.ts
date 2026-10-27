@@ -5,11 +5,10 @@ import { describe, expect, it } from "vitest";
 import { CLOSE_AUTH, CLOSE_FORBIDDEN, CLOSE_POLICY, CLOSE_REVOKED } from "../src/room.ts";
 import { popSign } from "../src/e2e.ts";
 import { b64uEncode } from "../src/jwt.ts";
-import { fakeSocket, lastSent, makeRoom, mintGrant, send, testCoreKey, testVerifier } from "./helpers.ts";
+import { fakeSocket, is_challenge, lastSent, makeRoom, mintGrant, send, testCoreKey, testVerifier, wait_for_frame } from "./helpers.ts";
 
-function nonceOf(s: ReturnType<typeof fakeSocket>): Uint8Array {
-  const ch = lastSent(s) as { type: string; nonce: string };
-  if (ch.type !== "challenge") throw new Error(`expected challenge, got ${ch.type}`);
+async function nonceOf(s: ReturnType<typeof fakeSocket>): Promise<Uint8Array> {
+  const ch = await wait_for_frame(s, is_challenge);
   return Uint8Array.from(Buffer.from(ch.nonce, "base64url"));
 }
 
@@ -31,7 +30,7 @@ describe("adversaries", () => {
     const s = fakeSocket();
     h.room.onConnect("a", s);
     await send(h.room, "a", { v: 1, type: "hello", grant: victim.jwt });
-    const nonce = nonceOf(s);
+    const nonce = await nonceOf(s);
     const { ed25519 } = await import("@noble/curves/ed25519.js");
     await send(h.room, "a", {
       v: 1, type: "authenticate", jti: victim.jti,
@@ -50,7 +49,7 @@ describe("adversaries", () => {
     await send(h.room, "victim", { v: 1, type: "hello", grant: victim.jwt });
     await send(h.room, "victim", {
       v: 1, type: "authenticate", jti: victim.jti,
-      sig: b64uEncode(popSign(victim.cnfSk, nonceOf(vs), victim.jti)),
+      sig: b64uEncode(popSign(victim.cnfSk, await nonceOf(vs), victim.jti)),
     });
     expect(vs.closed).toBeNull();
     // Attacker replays the same JWT: rejected at hello, no challenge.
@@ -96,7 +95,7 @@ describe("adversaries", () => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,
-        sig: b64uEncode(popSign(g.cnfSk, nonceOf(s), g.jti)),
+        sig: b64uEncode(popSign(g.cnfSk, await nonceOf(s), g.jti)),
       });
       return s;
     };
@@ -122,7 +121,7 @@ describe("adversaries", () => {
     await send(h.room, "f", { v: 1, type: "hello", grant: g.jwt });
     await send(h.room, "f", {
       v: 1, type: "authenticate", jti: g.jti,
-      sig: b64uEncode(popSign(g.cnfSk, nonceOf(s), g.jti)),
+      sig: b64uEncode(popSign(g.cnfSk, await nonceOf(s), g.jti)),
     });
     await send(h.room, "f", { v: 1, type: "open", channel: "ch9" });
     const last = lastSent(s) as { type: string; code?: string };
@@ -139,7 +138,7 @@ describe("adversaries", () => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,
-        sig: b64uEncode(popSign(g.cnfSk, nonceOf(s), g.jti)),
+        sig: b64uEncode(popSign(g.cnfSk, await nonceOf(s), g.jti)),
       });
       return s;
     };
@@ -163,7 +162,7 @@ describe("adversaries", () => {
       await send(h.room, id, { v: 1, type: "hello", grant: g.jwt });
       await send(h.room, id, {
         v: 1, type: "authenticate", jti: g.jti,
-        sig: b64uEncode(popSign(g.cnfSk, nonceOf(s), g.jti)),
+        sig: b64uEncode(popSign(g.cnfSk, await nonceOf(s), g.jti)),
       });
       return s;
     };
@@ -198,7 +197,7 @@ describe("adversaries", () => {
     await send(h.room, "c", { v: 1, type: "hello", grant: g.jwt });
     await send(h.room, "c", {
       v: 1, type: "authenticate", jti: g.jti,
-      sig: b64uEncode(popSign(g.cnfSk, nonceOf(s), g.jti)),
+      sig: b64uEncode(popSign(g.cnfSk, await nonceOf(s), g.jti)),
     });
     h.advance(30_000);
     h.room.tick();

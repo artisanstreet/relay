@@ -21,10 +21,6 @@ import type { VerifyChannelJwt } from "../src/channel.ts";
 
 const CTX = { account: "acct1", machine: "forge1", channel: "ch1" };
 
-async function flush(times = 20): Promise<void> {
-  for (let i = 0; i < times; i++) await new Promise((r) => setImmediate(r));
-}
-
 /** Poll for open with a real timeout instead of hoping a flush suffices. */
 
 async function waitClosed(ch: { getPhase(): string }, label: string): Promise<void> {

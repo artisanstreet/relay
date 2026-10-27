@@ -355,6 +355,10 @@ describe("DO hibernation glue", () => {
     await settled(state);
     const stale = state.storage.data.get("relay:room:v1") as RoomSnapshot;
     expect(stale.channels.length).toBe(0); // failed save: still the admission snapshot
+    // Fail-closed boundary: live sockets are closed (clients reconnect and
+    // re-hello with fresh grants) rather than diverging from storage.
+    expect(forgeSock.closed?.code).toBe(1011);
+    expect(clientSock.closed?.code).toBe(1011);
     // Dirtiness restored (behavioral proof below): the next flush after
     // recovery persists the LATEST state, including ch1 from the failed pass.
     // Storage recovers: the next flush persists the LATEST state,

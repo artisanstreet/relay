@@ -1,7 +1,7 @@
 // Shared test helpers: throwaway Core keys, grant minting, fake sockets.
 // Nothing here is production code; the committed fixtures in
 // contracts/fixtures/ are the cross-language artifacts, generated from
-// fixed seeds by test/vectors.test.ts (UPDATE_FIXTURES=1).
+// fixed seeds by tests/vectors.test.ts (UPDATE_FIXTURES=1).
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -134,6 +134,39 @@ export function fakeSocket(): FakeSocket {
 export function lastSent(s: FakeSocket): unknown {
   if (s.sent.length === 0) throw new Error("no frames sent");
   return JSON.parse(s.sent[s.sent.length - 1] as string);
+}
+
+/**
+ * Bounded wait for a frame matching `pred` (Effect scheduling can defer
+ * verifier continuations; setup must synchronize on readiness, not assume
+ * microtask counts). Throws with the last frame for diagnosis on timeout.
+ * Security assertions in callers are unchanged.
+ */
+export async function wait_for_frame<T>(
+  s: FakeSocket,
+  pred: (f: unknown) => f is T,
+  timeoutMs = 2000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    for (const raw of s.sent) {
+      const f: unknown = JSON.parse(raw);
+      if (pred(f)) return f;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for frame; last=${s.sent[s.sent.length - 1] ?? "none"}`);
+    }
+    await new Promise((r) => setTimeout(r, 1));
+  }
+}
+
+export function is_challenge(f: unknown): f is { type: "challenge"; nonce: string } {
+  return (
+    typeof f === "object" &&
+    f !== null &&
+    (f as { type?: unknown }).type === "challenge" &&
+    typeof (f as { nonce?: unknown }).nonce === "string"
+  );
 }
 
 export interface RoomHarness {
