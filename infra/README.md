@@ -155,8 +155,12 @@ Alchemy — verified via `--help` reaching `alchemy plan`/`deploy` usage.
 ## Deploy (authorized operators only; nothing here was deployed by this task)
 
 ```sh
+# From a fresh clone, install BOTH packages first: WorkerBundle builds
+# ../src/index.ts, which imports the runtime's dependencies (Effect 3,
+# jose, …) from the root node_modules — infra's own install is not enough.
+npm ci             # repo root: runtime deps for the bundled Worker source
 cd infra
-npm ci
+npm ci             # infra: Alchemy/Effect 4 deploy tooling
 npm run check            # offline gate, must be green
 cp .env.example .env     # fill in the two real https origins (prod pair)
 npx --no-install alchemy profile edit --add Cloudflare   # once per machine/profile

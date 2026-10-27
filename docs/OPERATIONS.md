@@ -18,8 +18,10 @@ cloud commands require an authorized operator.
      Worker's custom `domain` (zone must pre-exist); `workersDev: false`.
 3. Fixed vars (exact): `RELAY_AUD=ast-relay`, `GRANT_MAX_TTL_S=300`,
    `REVOCATION_POLL_MS=60000` (min 1000).
-4. `cd infra && npm ci && npm run check` (offline gate: typecheck + tests +
-   bundle — must be green; touches no cloud), then
+4. From a fresh clone install both packages (`npm ci` at root for the
+   runtime deps the bundle resolves, then `cd infra && npm ci`), then
+   `npm run check` (offline gate: typecheck + tests + bundle — must be
+   green; touches no cloud), then
    `npm run deploy -- --stage <prod|staging> [--profile <name>]` (local
    `alchemy` binary, no global install). Previews need their OWN origins via
    `--env-file .env.preview` — never reuse prod domains for another stage
