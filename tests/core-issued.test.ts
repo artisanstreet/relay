@@ -1,7 +1,7 @@
 // Real Core artifact verification (release-copy path).
 //
 // Uses contracts/fixtures/core-issued.json — a BYTE-EXACT copy of
-// core/fixtures/v1/core-issued.json made by scripts/copy-core-fixture.mjs
+// core/fixtures/v1/core-issued.json made by scripts/copy-core-fixture.ts
 // (see core-issued.meta.json for source hash). No hand edits, no mirrored
 // values: whatever Core emitted is what we verify (signature via the
 // artifact JWKS, claim names, revocation enforcement in rooms built from
@@ -123,6 +123,6 @@ describe.runIf(hasArtifact)("core-issued artifact (release copy)", () => {
 
 describe.skipIf(hasArtifact)("core-issued artifact (release copy)", () => {
   it("WAITING on Core: core/fixtures/v1/core-issued.json absent", () => {
-    console.log("skip: run scripts/copy-core-fixture.mjs once Core emits the artifact");
+    console.log("skip: run scripts/copy-core-fixture.ts once Core emits the artifact");
   });
 });

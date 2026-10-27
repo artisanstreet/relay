@@ -300,6 +300,7 @@ describe("DO hibernation glue", () => {
     const forgeSock = await upgrade(a);
     await authedServer(a, forgeSock, "forge");
     await settled(state);
+    const before = JSON.stringify(state.storage.data.get("relay:room:v1"));
 
     state.storage.failGet = true;
     const b = new MachineRoom(state as never, env());
@@ -307,8 +308,8 @@ describe("DO hibernation glue", () => {
       new Request("https://relay/room/acct1/forge1", { headers: { Upgrade: "websocket" } }),
     );
     expect(bad.status).toBe(500);
-    // Instance holds no room: authority untouched.
-    expect((b as unknown as { room: unknown }).room).toBeNull();
+    // Authority untouched: persisted snapshot unchanged (no fresh-room clobber).
+    expect(JSON.stringify(state.storage.data.get("relay:room:v1"))).toBe(before);
 
     // Storage recovers: the SAME instance retries successfully.
     state.storage.failGet = false;
@@ -329,12 +330,14 @@ describe("DO hibernation glue", () => {
     const forgeSock = await upgrade(a);
     await authedServer(a, forgeSock, "forge");
     await settled(state);
+    const before = JSON.stringify(state.storage.data.get("relay:room:v1"));
 
     state.storage.failGet = true;
     const b = new MachineRoom(state as never, env());
     await b.webSocketMessage(asWs(forgeSock), JSON.stringify({ v: 1, type: "pong", t: Date.now() }));
     expect(forgeSock.closed?.code).toBe(1011);
-    expect((b as unknown as { room: unknown }).room).toBeNull();
+    // No fresh room persisted on failed load (snapshot unchanged).
+    expect(JSON.stringify(state.storage.data.get("relay:room:v1"))).toBe(before);
   });
 
   it("failed persist restores dirtiness and retries on later flush", async () => {
@@ -352,8 +355,8 @@ describe("DO hibernation glue", () => {
     await settled(state);
     const stale = state.storage.data.get("relay:room:v1") as RoomSnapshot;
     expect(stale.channels.length).toBe(0); // failed save: still the admission snapshot
-    const room = (a as unknown as { room: { isDirty(): boolean } }).room;
-    expect(room.isDirty()).toBe(true);
+    // Dirtiness restored (behavioral proof below): the next flush after
+    // recovery persists the LATEST state, including ch1 from the failed pass.
     // Storage recovers: the next flush persists the LATEST state,
     // including the change from the failed pass.
     state.storage.failPut = false;
@@ -361,6 +364,5 @@ describe("DO hibernation glue", () => {
     await settled(state);
     const snap = state.storage.data.get("relay:room:v1") as RoomSnapshot;
     expect(snap.channels.map((c) => c.name).sort()).toEqual(["ch1", "ch2"]);
-    expect(room.isDirty()).toBe(false);
   });
 });

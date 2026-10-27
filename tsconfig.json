@@ -15,5 +15,5 @@
     "rootDir": ".",
     "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "vitest.config.ts", "types/**/*.d.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vitest.config.ts", "types/**/*.d.ts"]
 }

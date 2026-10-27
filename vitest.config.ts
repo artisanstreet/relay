@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [reylo()],
   test: {
     environment: "node",
-    include: ["test/**/*.test.ts", "integration/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "integration/**/*.test.ts"],
     testTimeout: 30_000,
   },
 });

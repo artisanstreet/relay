@@ -1,6 +1,6 @@
 // Cross-repo contract fixture: Core v1 grant + JWKS + revocations JSON in
 // Core's EXACT wire shapes (Core docs/contracts.md §4,
-// src/services/grants.ts): camelCase revokedMachineIds/revokedKeyIds/asOf,
+// src/services/grants/verifier.ts): camelCase revokedMachineIds/revokedKeyIds/asOf,
 // standard JWT claims + JWKS.
 //
 // Provenance (honest): Relay-authored shape mirror, signed by a TEST key.
