@@ -1,0 +1,37 @@
+export const APP_MAGIC = "AR1";
+export const KIND_CONFIRM = 0x00;
+export const KIND_DATA = 0x01;
+/** Plaintext cap per transport message (Noise cap 65535 incl. 16B tag). */
+export const MAX_APP_PLAINTEXT = 60_000;
+
+/**
+ * Exact Relay data-body length (base64url chars, NO padding — b64uEncode
+ * strips `=`) that seal() will produce for `plaintextLen` plaintext bytes
+ * on `channel` — computable BEFORE sealing (and before any Noise nonce is
+ * consumed):
+ *   appFrame  = 3 + 1 + 1 + chLen + 1 + pt
+ *   noiseCt   = appFrame + 16 (XChaCha20-Poly1305 tag)
+ *   body      = 4 * ceil(noiseCt / 3) minus padding chars (2 if ct%3==1,
+ *               1 if ct%3==2, 0 if ct%3==0)
+ * Throws on over-cap plaintext or over-long channel, same as seal().
+ * Pinned exact by test/send-window.test.ts across sizes.
+ */
+export function sealedFrameSize(channel: string, plaintextLen: number): number {
+  const chLen = new TextEncoder().encode(channel).length;
+  if (chLen === 0 || chLen > 64) throw new Error("bad channel");
+  if (plaintextLen > MAX_APP_PLAINTEXT) throw new Error("message too large, chunk it");
+  const noiseCt = 3 + 1 + 1 + chLen + 1 + plaintextLen + 16;
+  return 4 * Math.ceil(noiseCt / 3) - (noiseCt % 3 === 1 ? 2 : noiseCt % 3 === 2 ? 1 : 0);
+}
+/** In-confirm JWT cap (grants are small; bounds confirm parsing). */
+export const MAX_GRANT_JWT = 8192;
+
+export function u16be(n: number): Uint8Array {
+  const out = new Uint8Array(2);
+  new DataView(out.buffer).setUint16(0, n);
+  return out;
+}
+
+export function readU16be(b: Uint8Array, off: number): number {
+  return new DataView(b.buffer, b.byteOffset + off, 2).getUint16(0);
+}
