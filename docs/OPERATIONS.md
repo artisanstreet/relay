@@ -1,28 +1,37 @@
 # Relay operations
 
-## Deploy (real remaining external credentials — nothing deployed yet)
+## Deploy (Alchemy is the production source of truth)
 
-1. Cloudflare account + `wrangler login`. No secrets in repo.
-2. Required worker vars (fail-closed `relay misconfigured` without them):
-   - `CORE_JWKS_URL` — Core JWKS endpoint (no default).
-   - `CORE_ISS` — Core issuer string (no default).
-3. Optional vars (defaults shown):
-   - `RELAY_AUD=ast-relay`, `GRANT_MAX_TTL_S=300`.
-   - `CORE_REVOCATIONS_URL` (default `${CORE_ISS}/v1/grants/revocations`).
-   - `REVOCATION_POLL_MS=60000` (min 1000).
-   - `RELAY_PORTAL_ORIGIN` (unset by default): exact account-portal origin
-     (e.g. `https://core.artisanstreet.dev`) permitted cross-origin browser
-     access. When set: presence/version answer CORS preflights and reflect
-     the origin (`Access-Control-Allow-Origin`, `Vary: Origin`; allow-list
-     is `GET` + `Authorization`); WebSocket upgrades carrying a mismatched
-     `Origin` are refused pre-upgrade (403), while requests with no `Origin`
-     (native clients, curl) always proceed to grant+PoP admission. No
-     wildcards, no `Access-Control-Allow-Credentials` ever (auth is Bearer
-     grants, never cookies). Format: single `https://host[:port]`, no path.
-4. `wrangler deploy` (dry-run verified: `npm run deploy:plan`).
-   Durable Object `MachineRoom` migration `v1` creates SQLite storage
-   on first use. No Hyperdrive/PostgreSQL binding: Relay holds no
-   relational state by design (Core owns PG).
+Production deploys run from `infra/` (Alchemy v2, isolated package — see
+`infra/README.md`). Nothing below has been deployed by the infra task; all
+cloud commands require an authorized operator.
+
+1. Cloudflare account + Alchemy profile (`alchemy profile edit --add Cloudflare`)
+   or CI env. No secrets in repo (deploy inputs are two public https origins).
+2. Public inputs via `infra/.env` (see `infra/.env.example`; stage from CLI):
+   - `AST_CORE_ORIGIN` — exact Core origin. Derives `CORE_JWKS_URL`
+     (`${AST_CORE_ORIGIN}/.well-known/jwks.json`), `CORE_ISS`
+     (`${AST_CORE_ORIGIN}`), `CORE_REVOCATIONS_URL`
+     (`${AST_CORE_ORIGIN}/v1/grants/revocations`), `RELAY_PORTAL_ORIGIN`
+     (`${AST_CORE_ORIGIN}`). All validated exact-https, fail closed.
+   - `AST_RELAY_ORIGIN` — exact Relay origin. Its hostname becomes the
+     Worker's custom `domain` (zone must pre-exist); `workersDev: false`.
+3. Fixed vars (exact): `RELAY_AUD=ast-relay`, `GRANT_MAX_TTL_S=300`,
+   `REVOCATION_POLL_MS=60000` (min 1000).
+4. `cd infra && npm ci && npm run check` (offline gate: typecheck + tests +
+   bundle — must be green; touches no cloud), then
+   `alchemy deploy --stage <prod|staging|pr-N> [--profile <name>]`.
+   First-ever run bootstraps the account state store (cloud mutation — do it
+   once explicitly via `npm run state:bootstrap`; CI fails loudly if missing).
+   Each stage gets an isolated Worker script + isolated DO state. Durable
+   Object `MachineRoom` deploys via the declarative `exports` map (SQLite,
+   one-way — cannot revert to the legacy `migrations` flow; a removed class
+   stops the deploy instead of deleting data). No Hyperdrive/PostgreSQL
+   binding: Relay holds no relational state by design (Core owns PG).
+
+`wrangler.toml` is retained ONLY for local/test (`wrangler dev`, miniflare
+harness parity, `npm run deploy:plan` dry-run). Never `wrangler deploy` for
+releases — it is not a deployment path and must not gain competing docs.
 
 ## Runtime behavior
 
@@ -55,4 +64,7 @@
   for the snow-peer cargo build; skips cleanly without cargo).
 - `UPDATE_FIXTURES=1 npm test -- test/vectors.test.ts` to re-freeze
   vectors after dependency bumps (review the diff!).
-- `npm run deploy:plan` for the Workers dry-run.
+- `npm run deploy:plan` for the Workers dry-run (local only, not a release).
+- `npm run infra:check` for the infra offline gate (typecheck + config tests
+  + raw-Worker bundle intact). `npm run infra:plan` / `infra:deploy` are
+  real cloud commands — see `infra/README.md`, never run casually.

@@ -10,6 +10,9 @@
     "test": "vitest run",
     "deploy:plan": "wrangler deploy --dry-run",
     "dev": "wrangler dev",
+    "infra:check": "npm --prefix infra run check",
+    "infra:plan": "npm --prefix infra run plan",
+    "infra:deploy": "npm --prefix infra run deploy",
     "build:client": "esbuild src/client.ts --bundle --platform=browser --format=esm --outfile=dist/relay-client.mjs --allow-overwrite"
   },
   "dependencies": {

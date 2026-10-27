@@ -1,0 +1,33 @@
+{
+  "name": "@artisanstreet/relay-infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Artisan Street Relay infrastructure as code (Alchemy v2, isolated from runtime). Production source of truth for Relay Worker + Durable Object deploys.",
+  "scripts": {
+    "install:clean": "npm ci",
+    "check": "npm run typecheck && npm run test && npm run bundle:check",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "bundle:check": "node scripts/check-bundle.mjs",
+    "plan": "alchemy plan",
+    "deploy": "alchemy deploy",
+    "destroy": "alchemy destroy",
+    "state:bootstrap": "alchemy state bootstrap --backend cloudflare"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
+    "@effect/platform-node": "4.0.6",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "4.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "typescript": "7.1.0-beta",
+    "vitest": "5.0.5"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

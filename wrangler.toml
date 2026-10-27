@@ -1,4 +1,8 @@
 # Artisan Street Relay — Cloudflare Workers + Durable Objects.
+# PRODUCTION DEPLOYS: Alchemy v2 (infra/, production source of truth).
+# This file is retained ONLY for local/test parity: `wrangler dev`,
+# miniflare harness parity, `wrangler deploy --dry-run`. Do NOT
+# `wrangler deploy` for real releases — see docs/OPERATIONS.md + infra/README.md.
 # No Hyperdrive/PostgreSQL binding here by design: Relay holds no durable
 # relational state (ephemeral routing/presence only, in DO storage + alarm
 # sweeps). Core remains the PostgreSQL-through-Hyperdrive authority for

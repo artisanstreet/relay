@@ -1,0 +1,92 @@
+// Relay infra config: single source of truth for deploy inputs.
+// Pure (no Alchemy imports) so vitest runs fully offline without cloud.
+// alchemy.run.ts imports everything below; tests import it too — never
+// mirror these literals anywhere else.
+
+/** Alchemy stack name. Distinct from Core's stack; both share the default
+ *  account-level Cloudflare state store, isolated by (stack, stage). */
+export const STACK_NAME = "artisan-relay";
+
+/** Logical ID of the Relay Worker resource within the stack. */
+export const WORKER_LOGICAL_ID = "Relay";
+
+/** Durable Object binding name exposed on the Worker env. */
+export const DO_BINDING_NAME = "MACHINE_ROOM";
+
+/** Durable Object class name exported by ../src/index.ts. */
+export const DO_CLASS_NAME = "MachineRoom";
+
+/** Entry module bundled intact (raw async Worker, NOT rewritten to Effect). */
+export const WORKER_MAIN = "../src/index.ts";
+
+/** Must match wrangler.toml compatibility_date (local/test parity). */
+export const COMPATIBILITY_DATE = "2026-10-26";
+
+/** Fixed non-secret Worker vars (exact values). */
+export const RELAY_AUD = "ast-relay";
+export const GRANT_MAX_TTL_S = "300";
+export const REVOCATION_POLL_MS = "60000";
+
+/** Deploy input env var names (public origins, NOT secrets). */
+export const CORE_ORIGIN_VAR = "AST_CORE_ORIGIN";
+export const RELAY_ORIGIN_VAR = "AST_RELAY_ORIGIN";
+
+/**
+ * Validate an exact https origin: single `https://host[:port]`, no path,
+ * query, hash, userinfo, or trailing content. Returns the normalized
+ * origin (`scheme://host[:port]`, default ports stripped, no trailing `/`).
+ * Throws with the var name on any violation (fail closed).
+ */
+export function parseHttpsOrigin(raw: string, varName: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error(`${varName} is required (exact https origin)`);
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`${varName} must be an exact https origin, got unparsable value`);
+  }
+  if (url.protocol !== "https:") {
+    throw new Error(`${varName} must be https (no http, no wildcards)`);
+  }
+  if (url.username || url.password) {
+    throw new Error(`${varName} must not contain userinfo`);
+  }
+  if (url.pathname !== "/" && url.pathname !== "") {
+    throw new Error(`${varName} must be a bare origin (no path)`);
+  }
+  if (url.search || url.hash) {
+    throw new Error(`${varName} must be a bare origin (no query/hash)`);
+  }
+  if (!url.hostname) throw new Error(`${varName} must include a hostname`);
+  // Normalize: strip the default https port, drop any trailing slash.
+  const port = url.port === "443" ? "" : url.port ? `:${url.port}` : "";
+  return `https://${url.hostname}${port}`;
+}
+
+/** Hostname for the `domain` prop (zone inferred from it, must pre-exist). */
+export function getHostname(origin: string): string {
+  return new URL(origin).hostname;
+}
+
+export interface RelayVars {
+  CORE_JWKS_URL: string;
+  CORE_ISS: string;
+  CORE_REVOCATIONS_URL: string;
+  RELAY_PORTAL_ORIGIN: string;
+}
+
+/** Derive exact Worker vars from the validated Core origin. */
+export function deriveRelayVars(coreOrigin: string): RelayVars {
+  return {
+    CORE_JWKS_URL: `${coreOrigin}/.well-known/jwks.json`,
+    CORE_ISS: coreOrigin,
+    CORE_REVOCATIONS_URL: `${coreOrigin}/v1/grants/revocations`,
+    RELAY_PORTAL_ORIGIN: coreOrigin,
+  };
+}
+
+/** Alchemy stage names must match `[a-z0-9][-_a-z0-9]*`. */
+export function isValidStage(name: string): boolean {
+  return /^[a-z0-9][-_a-z0-9]*$/.test(name);
+}
