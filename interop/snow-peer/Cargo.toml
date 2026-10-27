@@ -1,6 +1,7 @@
 [package]
 name = "snow-peer"
 version = "0.1.0"
+license = "BSD-3-Clause"
 edition = "2021"
 description = "Relay interop peer: real snow Noise_XX responder driven over JSON lines for live JS<->Rust handshake verification"
 
