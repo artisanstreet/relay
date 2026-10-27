@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { FetchHttpClient, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { parse_env, type Env } from "./config/relay.ts";
 import { router } from "./router.ts";
@@ -19,11 +19,11 @@ const BaseServices = Layer.mergeAll(
   HttpLive,
 );
 
-// Once per Worker isolate (pure config-safe init): shared JWKS sets keyed
-// by URL + stateless HttpClient. No request data captured (RelayEnv stays
-// per-request). Subsequent requests reuse the build (jose cooldown +
-// coalescing preserved on both Worker and DO paths).
-const isolate_runtime = await Effect.runPromise(Effect.scoped(Layer.toRuntime(BaseServices)));
+// Once per Worker isolate with proper ownership: the ManagedRuntime keeps
+// its scope open for isolate lifetime (no closed-scope use). Shared JWKS
+// sets keyed by URL + stateless HttpClient inside; no request data captured
+// (RelayEnv stays per-request). jose cooldown + coalescing preserved.
+const isolate_runtime = ManagedRuntime.make(BaseServices);
 
 function with_cors(res: Response, req: Request, portal_origin: string | null): Response {
   const out = new Response(res.body, res);
@@ -74,11 +74,12 @@ export default {
       }
 
       const http_req = HttpServerRequest.fromWeb(req);
-      const http_res: HttpServerResponse.HttpServerResponse = yield* Effect.provide(
-        Effect.provideService(router, RelayEnv, cfg),
-        isolate_runtime,
+      const http_res: HttpServerResponse.HttpServerResponse = yield* Effect.provideService(
+        router,
+        HttpServerRequest.HttpServerRequest,
+        http_req,
       ).pipe(
-        Effect.provideService(HttpServerRequest.HttpServerRequest, http_req),
+        Effect.provideService(RelayEnv, cfg),
         Effect.catchTag("RouteNotFound", () =>
           Effect.succeed(HttpServerResponse.unsafeJson({ error: "not found" }, { status: 404 }))),
         Effect.catchAll(() =>
@@ -96,6 +97,6 @@ export default {
       }
       return res;
     });
-    return Effect.runPromise(pipeline as Effect.Effect<Response, never, never>);
+    return isolate_runtime.runPromise(pipeline as Effect.Effect<Response, never, never>);
   },
 } satisfies ExportedHandler<Env>;
