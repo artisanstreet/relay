@@ -7,34 +7,39 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsrs --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vp test",
     "deploy:plan": "wrangler deploy --dry-run",
     "dev": "wrangler dev",
-    "infra:check": "npm --prefix infra run check",
-    "infra:plan": "npm --prefix infra run plan --",
-    "infra:deploy": "npm --prefix infra run deploy --",
-    "build:client": "esbuild src/client.ts --bundle --platform=browser --format=esm --outfile=dist/relay-client.mjs --allow-overwrite"
+    "infra:check": "pnpm --dir infra run check",
+    "infra:plan": "pnpm --dir infra run plan --",
+    "infra:deploy": "pnpm --dir infra run deploy --",
+    "build:client": "node --experimental-strip-types scripts/build-client.ts"
   },
   "dependencies": {
     "@effect/platform": "0.97.2",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "b4a": "1.9.0",
-    "effect": "^3.22.4",
+    "effect": "3.22.4",
     "jose": "6.2.13",
     "noise-handshake": "4.2.0",
     "sodium-javascript": "0.8.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261026.1",
-    "@types/node": "^26.6.5",
-    "esbuild": "^0.28.2",
-    "miniflare": "^3.20250718.3",
-    "playwright-core": "^1.64.1",
-    "reylo": "^0.5.0",
+    "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "miniflare": "3.20250718.3",
+    "playwright-core": "1.64.1",
+    "reylo": "0.5.0",
     "tsrs": "0.20.0-ts7.1.0-beta",
     "typescript": "7.1.0-beta",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+    "vite-plus": "1.4.0",
     "vitest": "5.0.5",
     "wrangler": "4.153.0"
+  },
+  "engines": {
+    "node": "^24.11.0"
   }
 }

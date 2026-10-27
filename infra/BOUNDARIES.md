@@ -1,6 +1,7 @@
 # Boundaries enforced by this stack (read before changing anything)
-- Relay infra lives ONLY in `relay/infra/` (own package + lockfile + tsconfig,
-  Effect 4 / Alchemy peers). The runtime (`relay/src`, `relay/package.json`
+- Relay infra lives ONLY in `relay/infra/` (own package + tsconfig,
+  Effect 4 / Alchemy peers, shared pnpm workspace lockfile at `relay/`
+  root). The runtime (`relay/src`, `relay/package.json`
   deps incl. Effect 3) is untouched by infra changes.
 - No imports from Core, no shared DB/R2/Hyperdrive/Queues. The only cross-repo
   coupling is two PUBLIC origins passed at deploy time (see `.env.example`).

@@ -63,7 +63,7 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 1. Node >= 24.11.1 (host runs 24.18 — the CLI's minimum on the 24 line;
    aligned with Core infra).
    Bun optional — the Alchemy CLI runs directly under Node, no Bun install needed.
-2. Cloudflare account + credentials via `npx --no-install alchemy profile edit --add Cloudflare`
+2. Cloudflare account + credentials via `pnpm dlx alchemy profile edit --add Cloudflare`
    (OAuth or API token, interactive) or CI env (`CLOUDFLARE_ACCOUNT_ID` plus
    token). Deploy credentials live in the Alchemy profile, never in the repo.
 3. The relay zone already exists in the account (the `domain` hostname's zone
@@ -75,8 +75,8 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 
 | Command | What it does | Cloud? |
 |---|---|---|
-| `npm ci` (in `infra/`) | reproducible install from `package-lock.json` | no (npm registry only) |
-| `npm run typecheck` | `tsc --noEmit` on infra only | no |
+| `pnpm install --frozen-lockfile` (in `infra/`) | reproducible install from `pnpm-lock.yaml` | no (npm registry only) |
+| `pnpm run typecheck` | `tsrs --noEmit` on infra only | no |
 | `npm test` | vitest: origin validation (exact-https, wildcards, Core/Relay distinctness), var derivation, domain | no |
 | `npm run bundle:check` | Alchemy `WorkerBundle` builds `../src/index.ts`, imports the entry, asserts `default.fetch` + `MachineRoom` hibernation handlers | no |
 | `npm run check` | typecheck + test + bundle:check (the full offline gate) | no |
@@ -85,9 +85,9 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 | `npm run destroy -- --stage <s>` | `alchemy destroy` (that stage only) | YES |
 | `npm run state:bootstrap` | `alchemy state bootstrap --backend cloudflare` (one-time) | YES |
 
-`npm run <script> -- <args>` forwards args to the local `alchemy` binary
-(`node_modules/.bin`, installed by `npm ci` — no global install). The only
-bare-`alchemy` form used here is `npx --no-install alchemy profile ...`
+`pnpm run <script> -- <args>` forwards args to the local `alchemy` binary
+(`node_modules/.bin`, installed by `pnpm install` — no global install). The only
+bare-`alchemy` form used here is `pnpm dlx --no-install alchemy profile ...`
 (`--no-install` guarantees the local binary, never a download).
 
 Root conveniences (`relay/package.json`, deps untouched):
@@ -163,7 +163,7 @@ cd infra
 npm ci             # infra: Alchemy/Effect 4 deploy tooling
 npm run check            # offline gate, must be green
 cp .env.example .env     # fill in the two real https origins (prod pair)
-npx --no-install alchemy profile edit --add Cloudflare   # once per machine/profile
+pnpm dlx alchemy profile edit --add Cloudflare   # once per machine/profile
 npm run state:bootstrap  # once per account (or rely on CI failure signal)
 npm run deploy -- --stage prod --profile prod   # origins via .env
 ```

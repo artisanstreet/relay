@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Artisan Street Relay infrastructure as code (Alchemy v2, isolated from runtime). Production source of truth for Relay Worker + Durable Object deploys.",
   "scripts": {
-    "install:clean": "npm ci",
-    "check": "npm run typecheck && npm run test && npm run bundle:check",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "install:clean": "pnpm install --frozen-lockfile",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run bundle:check",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
+    "test": "vp test",
     "bundle:check": "node scripts/check-bundle.ts",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
@@ -23,10 +23,18 @@
   },
   "devDependencies": {
     "@types/node": "26.6.5",
+    "tsrs": "0.20.0-ts7.1.0-beta",
     "typescript": "7.1.0-beta",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+    "vite-plus": "1.4.0",
     "vitest": "5.0.5"
   },
   "engines": {
     "node": ">=24.11.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "vitest@*": "5.0.5"
+    }
   }
 }
