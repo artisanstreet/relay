@@ -37,40 +37,40 @@ export const RELAY_ORIGIN_VAR = "AST_RELAY_ORIGIN";
  * origin (`scheme://host[:port]`, default ports stripped, no trailing `/`).
  * Throws with the var name on any violation (fail closed).
  */
-export function parseHttpsOrigin(raw: string, varName: string): string {
+export function parse_https_origin(raw: string, var_name: string): string {
   const trimmed = raw.trim();
-  if (!trimmed) throw new Error(`${varName} is required (exact https origin)`);
+  if (!trimmed) throw new Error(`${var_name} is required (exact https origin)`);
   let url: URL;
   try {
     url = new URL(trimmed);
   } catch {
-    throw new Error(`${varName} must be an exact https origin, got unparsable value`);
+    throw new Error(`${var_name} must be an exact https origin, got unparsable value`);
   }
   if (url.protocol !== "https:") {
-    throw new Error(`${varName} must be https (no http, no wildcards)`);
+    throw new Error(`${var_name} must be https (no http, no wildcards)`);
   }
   // URL parses wildcards (`https://*.example.com`, `%2A` normalizes to `*`):
   // reject explicitly — origins here become single-owner custom domains.
   if (url.hostname.includes("*")) {
-    throw new Error(`${varName} must be exact (no wildcards)`);
+    throw new Error(`${var_name} must be exact (no wildcards)`);
   }
   if (url.username || url.password) {
-    throw new Error(`${varName} must not contain userinfo`);
+    throw new Error(`${var_name} must not contain userinfo`);
   }
   if (url.pathname !== "/" && url.pathname !== "") {
-    throw new Error(`${varName} must be a bare origin (no path)`);
+    throw new Error(`${var_name} must be a bare origin (no path)`);
   }
   if (url.search || url.hash) {
-    throw new Error(`${varName} must be a bare origin (no query/hash)`);
+    throw new Error(`${var_name} must be a bare origin (no query/hash)`);
   }
-  if (!url.hostname) throw new Error(`${varName} must include a hostname`);
+  if (!url.hostname) throw new Error(`${var_name} must include a hostname`);
   // Normalize: strip the default https port, drop any trailing slash.
   const port = url.port === "443" ? "" : url.port ? `:${url.port}` : "";
   return `https://${url.hostname}${port}`;
 }
 
 /** Hostname for the `domain` prop (zone inferred from it, must pre-exist). */
-export function getHostname(origin: string): string {
+export function get_hostname(origin: string): string {
   return new URL(origin).hostname;
 }
 
@@ -82,18 +82,18 @@ export interface RelayVars {
 }
 
 /** Derive exact Worker vars from the validated Core origin. */
-export function deriveRelayVars(coreOrigin: string): RelayVars {
+export function derive_relay_vars(core_origin: string): RelayVars {
   return {
-    CORE_JWKS_URL: `${coreOrigin}/.well-known/jwks.json`,
-    CORE_ISS: coreOrigin,
-    CORE_REVOCATIONS_URL: `${coreOrigin}/v1/grants/revocations`,
-    RELAY_PORTAL_ORIGIN: coreOrigin,
+    CORE_JWKS_URL: `${core_origin}/.well-known/jwks.json`,
+    CORE_ISS: core_origin,
+    CORE_REVOCATIONS_URL: `${core_origin}/v1/grants/revocations`,
+    RELAY_PORTAL_ORIGIN: core_origin,
   };
 }
 
 export interface DeployOrigins {
-  coreOrigin: string;
-  relayOrigin: string;
+  core_origin: string;
+  relay_origin: string;
 }
 
 /**
@@ -102,17 +102,17 @@ export interface DeployOrigins {
  * same host (a preview stage reusing prod domains would fight production for
  * its custom domain despite isolated Worker names and DO state).
  */
-export function parseDeployOrigins(coreRaw: string, relayRaw: string): DeployOrigins {
-  const coreOrigin = parseHttpsOrigin(coreRaw, CORE_ORIGIN_VAR);
-  const relayOrigin = parseHttpsOrigin(relayRaw, RELAY_ORIGIN_VAR);
+export function parse_deploy_origins(core_raw: string, relay_raw: string): DeployOrigins {
+  const core_origin = parse_https_origin(core_raw, CORE_ORIGIN_VAR);
+  const relay_origin = parse_https_origin(relay_raw, RELAY_ORIGIN_VAR);
   // Custom-domain ownership is HOSTNAME, not origin: same host with different
   // ports still maps both `domain` props onto one custom domain (and Core is
   // adopting the same explicit custom-domain convention on every stage).
-  if (getHostname(coreOrigin) === getHostname(relayOrigin)) {
+  if (get_hostname(core_origin) === get_hostname(relay_origin)) {
     throw new Error(
       `${RELAY_ORIGIN_VAR} must use a different host than ${CORE_ORIGIN_VAR} ` +
         `(two custom-domain Workers cannot own the same hostname, regardless of port)`,
     );
   }
-  return { coreOrigin, relayOrigin };
+  return { core_origin, relay_origin };
 }

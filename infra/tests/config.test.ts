@@ -7,22 +7,22 @@ import {
   GRANT_MAX_TTL_S,
   RELAY_AUD,
   REVOCATION_POLL_MS,
-  deriveRelayVars,
-  getHostname,
-  parseDeployOrigins,
-  parseHttpsOrigin,
+  derive_relay_vars,
+  get_hostname,
+  parse_deploy_origins,
+  parse_https_origin,
 } from "../config.ts";
 
 describe("origins (exact https, fail closed)", () => {
   test("accepts bare origins and normalizes", () => {
-    expect(parseHttpsOrigin("https://core.example.com", "V")).toBe("https://core.example.com");
-    expect(parseHttpsOrigin("https://core.example.com/", "V")).toBe("https://core.example.com");
-    expect(parseHttpsOrigin("  https://core.example.com  ", "V")).toBe("https://core.example.com");
-    expect(parseHttpsOrigin("https://core.example.com:8443", "V")).toBe(
+    expect(parse_https_origin("https://core.example.com", "V")).toBe("https://core.example.com");
+    expect(parse_https_origin("https://core.example.com/", "V")).toBe("https://core.example.com");
+    expect(parse_https_origin("  https://core.example.com  ", "V")).toBe("https://core.example.com");
+    expect(parse_https_origin("https://core.example.com:8443", "V")).toBe(
       "https://core.example.com:8443",
     );
     // Default port is stripped.
-    expect(parseHttpsOrigin("https://core.example.com:443", "V")).toBe(
+    expect(parse_https_origin("https://core.example.com:443", "V")).toBe(
       "https://core.example.com",
     );
   });
@@ -43,7 +43,7 @@ describe("origins (exact https, fail closed)", () => {
       "not-a-url",
       "ftp://core.example.com",
     ]) {
-      expect(() => parseHttpsOrigin(bad, "V"), JSON.stringify(bad)).toThrow();
+      expect(() => parse_https_origin(bad, "V"), JSON.stringify(bad)).toThrow();
     }
   });
 });
@@ -51,44 +51,44 @@ describe("origins (exact https, fail closed)", () => {
 describe("deploy origins (Core vs Relay must differ)", () => {
   test("accepts two distinct origins", () => {
     expect(
-      parseDeployOrigins("https://core.example.com", "https://relay.example.com"),
+      parse_deploy_origins("https://core.example.com", "https://relay.example.com"),
     ).toEqual({
-      coreOrigin: "https://core.example.com",
-      relayOrigin: "https://relay.example.com",
+      core_origin: "https://core.example.com",
+      relay_origin: "https://relay.example.com",
     });
   });
 
   test("rejects identical origins (normalization-aware)", () => {
     expect(() =>
-      parseDeployOrigins("https://x.example.com", "https://x.example.com"),
+      parse_deploy_origins("https://x.example.com", "https://x.example.com"),
     ).toThrow();
     expect(() =>
-      parseDeployOrigins("https://x.example.com", "https://x.example.com/"),
+      parse_deploy_origins("https://x.example.com", "https://x.example.com/"),
     ).toThrow();
   });
 
   test("rejects same hostname with different ports (domain is hostname-owned)", () => {
     expect(() =>
-      parseDeployOrigins("https://x.example.com:443", "https://x.example.com:8443"),
+      parse_deploy_origins("https://x.example.com:443", "https://x.example.com:8443"),
     ).toThrow();
     expect(() =>
-      parseDeployOrigins("https://x.example.com", "https://x.example.com:8443"),
+      parse_deploy_origins("https://x.example.com", "https://x.example.com:8443"),
     ).toThrow();
   });
 
   test("rejects when either side is invalid", () => {
     expect(() =>
-      parseDeployOrigins("http://core.example.com", "https://relay.example.com"),
+      parse_deploy_origins("http://core.example.com", "https://relay.example.com"),
     ).toThrow();
     expect(() =>
-      parseDeployOrigins("https://core.example.com", "https://*.example.com"),
+      parse_deploy_origins("https://core.example.com", "https://*.example.com"),
     ).toThrow();
   });
 });
 
 describe("derived Relay vars (exact)", () => {
   test("Core-derived endpoints use the validated origin verbatim", () => {
-    const v = deriveRelayVars("https://core.example.com");
+    const v = derive_relay_vars("https://core.example.com");
     expect(v.CORE_ISS).toBe("https://core.example.com");
     expect(v.CORE_JWKS_URL).toBe("https://core.example.com/.well-known/jwks.json");
     expect(v.CORE_REVOCATIONS_URL).toBe("https://core.example.com/v1/grants/revocations");
@@ -104,7 +104,7 @@ describe("derived Relay vars (exact)", () => {
 
 describe("domain", () => {
   test("domain is the relay origin hostname (zone inferred, must pre-exist)", () => {
-    expect(getHostname("https://relay.example.com")).toBe("relay.example.com");
-    expect(getHostname("https://relay.example.com:8443")).toBe("relay.example.com");
+    expect(get_hostname("https://relay.example.com")).toBe("relay.example.com");
+    expect(get_hostname("https://relay.example.com:8443")).toBe("relay.example.com");
   });
 });

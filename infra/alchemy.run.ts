@@ -37,9 +37,9 @@ import {
   STACK_NAME,
   WORKER_LOGICAL_ID,
   WORKER_MAIN,
-  deriveRelayVars,
-  getHostname,
-  parseDeployOrigins,
+  derive_relay_vars,
+  get_hostname,
+  parse_deploy_origins,
 } from "./config.ts";
 
 export default Alchemy.Stack(
@@ -51,14 +51,14 @@ export default Alchemy.Stack(
     // values throw inside the effect (deploy dies with var name + reason).
     // The pair is validated TOGETHER: identical Core/Relay origins are
     // rejected (two custom-domain Workers cannot own the same host).
-    const [coreRaw, relayRaw] = yield* Effect.all([
+    const [core_raw, relay_raw] = yield* Effect.all([
       Config.String(CORE_ORIGIN_VAR),
       Config.String(RELAY_ORIGIN_VAR),
     ]);
-    const { coreOrigin, relayOrigin } = parseDeployOrigins(coreRaw, relayRaw);
+    const { core_origin, relay_origin } = parse_deploy_origins(core_raw, relay_raw);
 
-    const vars = deriveRelayVars(coreOrigin);
-    const domain = getHostname(relayOrigin);
+    const vars = derive_relay_vars(core_origin);
+    const domain = get_hostname(relay_origin);
 
     // Relay owns compute ONLY: one Worker + its hosted DO namespace. No
     // R2/D1/Hyperdrive/Queues, no Core imports, no shared DB. All env values
@@ -83,14 +83,14 @@ export default Alchemy.Stack(
     return {
       url: worker.url,
       urls: worker.urls,
-      workerName: worker.workerName,
+      worker_name: worker.workerName,
       domain,
       stage: stack.stage,
       stack: stack.name,
-      coreOrigin,
-      relayOrigin,
-      doBinding: DO_BINDING_NAME,
-      doClass: DO_CLASS_NAME,
+      core_origin,
+      relay_origin,
+      do_binding: DO_BINDING_NAME,
+      do_class: DO_CLASS_NAME,
     };
   }),
 );

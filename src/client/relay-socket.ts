@@ -14,7 +14,7 @@ export interface ChannelEvents {
   on_channel_opened?(channel: string, peer: "forge" | "client"): void;
   on_data?(channel: string, seq: number, body: Uint8Array): void;
   on_channel_closed?(channel: string, reason: string): void;
-  on_presence?(forgeOnline: boolean, clients: number): void;
+  on_presence?(forge_online: boolean, clients: number): void;
   on_error?(code: string, message: string): void;
   on_close?(code: number, reason: string): void;
   /** Fired when a cumulative ack slides our send window (pacing signal). */
@@ -109,9 +109,9 @@ export class RelaySocket {
     protected ws_impl: typeof WebSocket = WebSocket,
   ) {}
 
-  connect(): Promise<{ role: string; forgeOnline: boolean }> {
+  connect(): Promise<{ role: string; forge_online: boolean }> {
     const self = this;
-    type Admission = { role: string; forgeOnline: boolean };
+    type Admission = { role: string; forge_online: boolean };
     const program = Effect.async<Admission, Error>((resume) => {
       const ws = new self.ws_impl(self.url);
       self.ws = ws;
@@ -165,7 +165,7 @@ export class RelaySocket {
                 return;
               }
               if (frame.type === "ready") {
-                settle_ok({ role: frame.role, forgeOnline: frame.forge_online });
+                settle_ok({ role: frame.role, forge_online: frame.forge_online });
                 return;
               }
               if (frame.type === "error") {
@@ -409,14 +409,14 @@ export class RelaySocket {
   }
 
   /** Slide the send window on a cumulative ack; resolve covered sends. */
-  private release_window_effect(channel: string, ackSeq: number): Effect.Effect<void> {
+  private release_window_effect(channel: string, ack_seq: number): Effect.Effect<void> {
     const self = this;
     return self.state_sem.withPermits(1)(
       Effect.gen(function* () {
         const st = self.send_state.get(channel);
         if (!st) return;
         let slid = false;
-        while (st.unacked.length > 0 && (st.unacked[0]?.seq ?? Infinity) <= ackSeq) {
+        while (st.unacked.length > 0 && (st.unacked[0]?.seq ?? Infinity) <= ack_seq) {
           const done = st.unacked.shift();
           if (!done) break;
           st.unacked_bytes = Math.max(0, st.unacked_bytes - done.bytes);
@@ -424,7 +424,7 @@ export class RelaySocket {
           slid = true;
         }
         if (slid) {
-          self.events.on_ack?.(channel, ackSeq);
+          self.events.on_ack?.(channel, ack_seq);
           yield* self.drain_queue(channel, st);
         }
       }),
