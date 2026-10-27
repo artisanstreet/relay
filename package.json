@@ -11,8 +11,8 @@
     "deploy:plan": "wrangler deploy --dry-run",
     "dev": "wrangler dev",
     "infra:check": "pnpm --dir infra run check",
-    "infra:plan": "pnpm --dir infra run plan --",
-    "infra:deploy": "pnpm --dir infra run deploy --",
+    "infra:plan": "pnpm --dir infra run plan",
+    "infra:deploy": "pnpm --dir infra run deploy",
     "build:client": "node --experimental-strip-types scripts/build-client.ts"
   },
   "dependencies": {
