@@ -1,7 +1,8 @@
 import { Effect, Option } from "effect";
 import { Headers, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { RelayEnv, room_id } from "../config/relay.ts";
-import { GrantAuthority, GrantVerifier, has_scope } from "../services/grants/verifier.ts";
+import { StorageUnavailable } from "../errors.ts";
+import { GrantVerifier, has_scope } from "../services/grants/verifier.ts";
 
 const id_re = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
 
@@ -19,14 +20,7 @@ const error_json = (
 ): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
   HttpServerResponse.unsafeJson(data, { status });
 
-export const handle_presence = (
-  account: string,
-  machine: string,
-): Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  never,
-  HttpServerRequest.HttpServerRequest | RelayEnv | GrantVerifier | GrantAuthority
-> =>
+export const handle_presence = (account: string, machine: string) =>
   Effect.gen(function* () {
     if (!id_re.test(account) || !id_re.test(machine)) {
       return yield* error_json({ error: "bad room id" }, 400);
@@ -44,29 +38,22 @@ export const handle_presence = (
     if (!has_scope(g, "relay:connect")) return yield* error_json({ error: "forbidden" }, 403);
     const cfg = yield* RelayEnv;
     const stub = cfg.raw_env.MACHINE_ROOM.get(room_id(cfg.raw_env.MACHINE_ROOM, account, machine));
-    const fetched = yield* Effect.matchEffect(
-      Effect.gen(function* () {
-        const res = yield* Effect.tryPromise({
-          try: () => stub.fetch("https://relay/presence"),
-          catch: () => new Error("presence upstream unreachable"),
-        });
-        const body = (yield* Effect.tryPromise({
-          try: () => res.json() as Promise<unknown>,
-          catch: () => new Error("presence decode failed"),
-        })) as unknown;
-        return { res, body };
-      }),
-      {
-        onFailure: () => error_json({ error: "storage unavailable" }, 500),
-        onSuccess: ({ res, body }) => {
-          const status = res.status;
-          if (status < 200 || status >= 300) {
-            const payload = body ?? { error: "storage unavailable" };
-            return error_json(payload, status);
-          }
-          return error_json(body, 200);
-        },
-      },
-    );
-    return fetched;
+    const fetch_presence = Effect.gen(function* () {
+      const res = yield* Effect.tryPromise({
+        try: () => stub.fetch("https://relay/presence"),
+        catch: (cause) => new StorageUnavailable({ reason: "presence upstream unreachable", cause }),
+      });
+      const body = (yield* Effect.tryPromise({
+        try: () => res.json() as Promise<unknown>,
+        catch: (cause) => new StorageUnavailable({ reason: "presence decode failed", cause }),
+      })) as unknown;
+      return { status: res.status, body };
+    });
+    return yield* Effect.matchEffect(fetch_presence, {
+      onFailure: () => error_json({ error: "storage unavailable" }, 500),
+      onSuccess: ({ status, body }) =>
+        status < 200 || status >= 300
+          ? error_json(body ?? { error: "storage unavailable" }, status)
+          : error_json(body, 200),
+    });
   });
