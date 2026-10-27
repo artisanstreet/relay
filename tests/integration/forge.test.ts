@@ -23,16 +23,16 @@ import { Miniflare } from "miniflare";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "@noble/hashes/utils.js";
-import { setupRig, api } from "../../core/tests/helpers/http.ts";
-import type { TestRig } from "../../core/tests/helpers/http.ts";
-import { EditorLink, SecureChannel } from "../src/client.ts";
-import type { GrantMaterial } from "../src/client.ts";
-import { staticKeypairFromSecret } from "../src/channel.ts";
-import { b64uEncode } from "../src/b64u.ts";
+import { setupRig, api } from "../../../core/tests/helpers/http.ts";
+import type { TestRig } from "../../../core/tests/helpers/http.ts";
+import { EditorLink, SecureChannel } from "../../src/client.ts";
+import type { GrantMaterial } from "../../src/client.ts";
+import { staticKeypairFromSecret } from "../../src/channel.ts";
+import { b64uEncode } from "../../src/b64u.ts";
 
 const te = new TextEncoder();
 const td = new TextDecoder();
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // Portable sibling paths: relay/ and editor/ check out side by side.
 // Never commit absolute /home/... paths in this dev harness.
 const EDITOR_DIR = join(root, "..", "editor");
@@ -102,16 +102,16 @@ let editorJti = "";
 let sessionCookie = "";
 let dataDir = "";
 let coreBaseUrl = "";
-let smoke: ChildProcess | null = null;
-const smokeLog: string[] = [];
-const smokeOut: string[] = [];
+let forge_proc: ChildProcess | null = null;
+const forgeLog: string[] = [];
+const forgeOut: string[] = [];
 
 beforeAll(async () => {
   rig = await setupRig();
-  const q1 = await api(rig.app, "POST", "/v1/auth/magic/request", { body: { email: "rsmoke@example.invalid" } });
+  const q1 = await api(rig.app, "POST", "/v1/auth/magic/request", { body: { email: "rinterop@example.invalid" } });
   if (q1.status !== 200) throw new Error(`request failed: ${q1.text}`);
   const { requestId, requestSecret } = q1.json as { requestId: string; requestSecret: string };
-  const token = rig.tokenForEmail("rsmoke@example.invalid");
+  const token = rig.tokenForEmail("rinterop@example.invalid");
   const q2 = await api(rig.app, "POST", "/v1/auth/magic/consume", { body: { token } });
   if (q2.status !== 200) throw new Error(`consume failed: ${q2.text}`);
   const q3 = await api(rig.app, "POST", "/v1/auth/magic/finalize", { body: { requestId, requestSecret } });
@@ -121,7 +121,7 @@ beforeAll(async () => {
 
   forgeSk = ed25519.utils.randomSecretKey();
   const forgeX = b64u(ed25519.getPublicKey(forgeSk));
-  const label = "forge-smoke";
+  const label = "interop-forge";
   const ts = Math.floor(Date.now() / 1000);
   const proof = b64u(ed25519.sign(te.encode(`enrollment-request\n${forgeX}\n${label}\n${ts}`), forgeSk));
   const start = await api(rig.app, "POST", "/v1/machines/enrollments", {
@@ -226,10 +226,10 @@ beforeAll(async () => {
       return "unknown";
     }
   })();
-  console.log(`forge-smoke against editor rev ${editorRev}`);
+  console.log(`forge interop against editor rev ${editorRev}`);
   // Build fails LOUDLY (no prebuilt fallback: a mid-edit upstream tree
   // must fail visibly and rerun when stable, never silently test stale code).
-  // Pin the toolchain to the Editor's rust-toolchain.toml: the smoke cwd
+  // Pin the toolchain to the Editor's rust-toolchain.toml: the build cwd
   // (relay/interop) inherits default stable while sharing editor/target
   // with native `cargo 1.98.0` runs — a mismatch rebuilds the same target
   // dir and flakes. RUSTUP_TOOLCHAIN from the pinned file avoids it.
@@ -255,42 +255,42 @@ beforeAll(async () => {
     });
   } catch (e) {
     const out = (e as { stderr?: Buffer }).stderr?.toString() ?? String(e);
-    const logPath = join(tmpdir(), `forge-smoke-build-${Date.now()}.log`);
+    const logPath = join(tmpdir(), `forge-build-${Date.now()}.log`);
     try {
       writeFileSync(logPath, out);
     } catch { /* ignore */ }
     console.log(`BUILD STDERR (also at ${logPath}):\n${out.split("\n").slice(-30).join("\n")}`);
-    throw new Error(`forge-smoke build failed (editor tree mid-edit? rerun when stable): see ${logPath}`);
+    throw new Error(`forge binary build failed (editor tree mid-edit? rerun when stable): see ${logPath}`);
   }
 
   // Launch: caller-built Hub + production serve_account_relay.
-  dataDir = mkdtempSync(join(tmpdir(), "forge-smoke-"));
-  smoke = spawn(
+  dataDir = mkdtempSync(join(tmpdir(), "relay-interop-"));
+  forge_proc = spawn(
     SMOKE_BIN,
     [],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   const lines: string[] = [];
-  smoke.stdout?.on("data", (d: Buffer) => {
+  forge_proc.stdout?.on("data", (d: Buffer) => {
     for (const line of d.toString().split("\n")) {
       if (!line.trim()) continue;
       lines.push(line);
-      smokeOut.push(line);
+      forgeOut.push(line);
     }
   });
-  smoke.stderr?.on("data", (d: Buffer) => {
-    smokeLog.push(d.toString());
-    if (smokeLog.length > 100) smokeLog.splice(0, smokeLog.length - 100);
+  forge_proc.stderr?.on("data", (d: Buffer) => {
+    forgeLog.push(d.toString());
+    if (forgeLog.length > 100) forgeLog.splice(0, forgeLog.length - 100);
   });
   const sendLine = (obj: unknown): void => {
-    smoke?.stdin?.write(`${JSON.stringify(obj)}\n`);
+    forge_proc?.stdin?.write(`${JSON.stringify(obj)}\n`);
   };
   const nextLine = async (): Promise<string> => {
     const deadline = Date.now() + 60_000;
     for (;;) {
       const line = lines.shift();
       if (line !== undefined) return line;
-      if (Date.now() > deadline) throw new Error("timeout waiting for forge-smoke output");
+      if (Date.now() > deadline) throw new Error("timeout waiting for forge output");
       await new Promise((r) => setTimeout(r, 50));
     }
   };
@@ -304,21 +304,21 @@ beforeAll(async () => {
     data_dir: dataDir,
   });
   const hello = JSON.parse(await nextLine()) as Record<string, unknown>;
-  if (!hello["ready"]) throw new Error(`forge-smoke failed to start: ${JSON.stringify(hello)}\nstderr:\n${smokeLog.slice(-20).join("\n")}`);
-  (globalThis as Record<string, unknown>).__forgeSmokeSend = sendLine;
-  (globalThis as Record<string, unknown>).__forgeSmokeNext = nextLine;
+  if (!hello["ready"]) throw new Error(`forge failed to start: ${JSON.stringify(hello)}\nstderr:\n${forgeLog.slice(-20).join("\n")}`);
+  (globalThis as Record<string, unknown>).__forgeInteropSend = sendLine;
+  (globalThis as Record<string, unknown>).__forgeInteropNext = nextLine;
 }, 300_000);
 
 afterAll(async () => {
   try {
-    ((globalThis as Record<string, unknown>).__forgeSmokeSend as ((o: unknown) => void) | undefined)?.({ shutdown: true });
+    ((globalThis as Record<string, unknown>).__forgeInteropSend as ((o: unknown) => void) | undefined)?.({ shutdown: true });
   } catch { /* ignore */ }
-  if (smoke && smoke.exitCode === null) {
-    smoke.kill("SIGTERM");
+  if (forge_proc && forge_proc.exitCode === null) {
+    forge_proc.kill("SIGTERM");
     await new Promise((r) => setTimeout(r, 3000));
-    if (smoke && smoke.exitCode === null) smoke.kill("SIGKILL");
+    if (forge_proc && forge_proc.exitCode === null) forge_proc.kill("SIGKILL");
   }
-  smoke = null;
+  forge_proc = null;
   await mf?.dispose();
   proxy?.close();
   if (dataDir) rmSync(dataDir, { recursive: true, force: true });
@@ -352,7 +352,7 @@ describe("production rust seam (serve_account_relay)", () => {
       if (r.status === 200) online = (JSON.parse(body) as { forge_online: boolean }).forge_online === true;
       if (!online) await new Promise((r2) => setTimeout(r2, 500));
     }
-    expect(online, "forge-smoke relay presence").toBe(true);
+    expect(online, "forge relay presence").toBe(true);
     // Sanity: a nonsense room must report offline (guards presence-path bugs).
     const probe = await fetch(`${base}/v1/presence/${accountId}/mch_AAAAAAAAAAAAAAAAAAAAAAAAAA`, {
       headers: { Authorization: `Bearer ${editorGrantJwt}` },
@@ -393,7 +393,7 @@ describe("production rust seam (serve_account_relay)", () => {
       cnfSignKey: editorSk, expectedForgeCnf: forgeCnf, ownGrantJwt: editorGrantJwt, ctx: streamCtx,
     });
 
-    type End = { ch: InstanceType<typeof SecureChannel>; channel: string };
+    type End = { ch: SecureChannel; channel: string };
     const ends: End[] = [
       { ch: editorUni, channel: "r-unary" },
       { ch: editorStream, channel: "r-stream" },
@@ -433,7 +433,7 @@ describe("production rust seam (serve_account_relay)", () => {
       throw new Error(
         `noise stall: uni=${editorUni.noise.getPhase()} stream=${editorStream.noise.getPhase()} inbox=[${inboxDump}] ` +
           `opened=[${editorOpened.join(",")}] errors=${JSON.stringify(editorErrors)} closed=${JSON.stringify(editorClosed)}\n` +
-          `forge-smoke stdout:\n${smokeOut.slice(-20).join("\n")}\nstderr:\n${smokeLog.slice(-20).join("\n")}`,
+          `forge stdout:\n${forgeOut.slice(-20).join("\n")}\nstderr:\n${forgeLog.slice(-20).join("\n")}`,
       );
     }
     expect(editorUni.isOpen(), "unary open").toBe(true);
@@ -532,7 +532,7 @@ describe("production rust seam (serve_account_relay)", () => {
     });
     expect(neg.status).toBe(200);
     const nativeJwt = (neg.json as { token: string }).token;
-    const machineLabel = listed.find((m) => m.id === machineId)?.label ?? "forge-smoke";
+    const machineLabel = listed.find((m) => m.id === machineId)?.label ?? "interop-forge";
     const nativeCfg = {
       relay_base_url: base,
       account_id: accountId,
@@ -548,7 +548,7 @@ describe("production rust seam (serve_account_relay)", () => {
     // live Core HTTP proxy that the Forge's revocation poll and the Relay's
     // JWKS fetch hit. Blocking the loop for the whole native run would
     // freeze those fetches and fake a client stall.
-    const nativeOut = await runNativeSmoke(nativeCfg);
+    const nativeOut = await runNativePeer(nativeCfg);
     const nativeLines = nativeOut.trim().split("\n").filter((l) => l.trim());
     const nativeSummary = JSON.parse(nativeLines[nativeLines.length - 1] as string) as Record<string, unknown>;
     expect(nativeSummary["ok"]).toBe(true);
@@ -570,7 +570,7 @@ describe("production rust seam (serve_account_relay)", () => {
 // Relay JWKS fetches) and pumps the JS initiator link, so a synchronous
 // execFileSync here would freeze the server side and fake a client stall.
 // Bounded 180 s timeout, stdin config, sanitized captured output.
-function runNativeSmoke(cfg: Record<string, unknown>): Promise<string> {
+function runNativePeer(cfg: Record<string, unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(NATIVE_BIN, [], { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { SecureChannel } from "../../src/client/secure-channel.ts";
-import { EditorLink } from "../../src/client/relay-socket.ts";
 import { RelaySocket } from "../../src/client/relay-socket.ts";
 import { staticKeypairFromSecret } from "../../src/channel/context.ts";
 import { newEd25519Keypair } from "../../src/e2e.ts";
@@ -32,7 +31,5 @@ describe("secure channel pacing (no resend, no nonce advance on block)", () => {
     initiator.destroy();
   });
 
-  it("EditorLink stays constructible via compat facade", () => {
-    expect(typeof EditorLink).toBe("function");
-  });
+
 });

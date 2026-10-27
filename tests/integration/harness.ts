@@ -1,6 +1,6 @@
 // Shared dev-only harness for browser integration tests.
 // Stands up the production-shape stack on loopback, mirroring
-// integration/forge-smoke.test.ts (which stays untouched):
+// tests/integration/forge.test.ts:
 //   real Core Hono app + PGlite (core tests helpers) with the BUILT web
 //   bundle as its asset backend (so the REAL Core CSP applies),
 //   real Miniflare/workerd Relay bound at Core's JWKS/revocations endpoints
@@ -22,11 +22,11 @@ import { Miniflare } from "miniflare";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "@noble/hashes/utils.js";
-import { setupRig, api } from "../../core/tests/helpers/http.ts";
-import type { TestRig } from "../../core/tests/helpers/http.ts";
+import { setupRig, api } from "../../../core/tests/helpers/http.ts";
+import type { TestRig } from "../../../core/tests/helpers/http.ts";
 
 const te = new TextEncoder();
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CORE_WEB_DIST = join(root, "..", "core", "web", "dist");
 const EDITOR_DIR = join(root, "..", "editor");
 const SMOKE_DIR = join(root, "interop", "forge-smoke");
@@ -70,7 +70,7 @@ export interface BrowserHarness {
   close(): Promise<void>;
 }
 
-export async function setupBrowserHarness(email = "browser-smoke@example.invalid"): Promise<BrowserHarness> {
+export async function setupBrowserHarness(email = "browser-interop@example.invalid"): Promise<BrowserHarness> {
   if (!existsSync(join(CORE_WEB_DIST, "index.html"))) {
     throw new Error(`core/web/dist is missing: run \`npm run build\` in core/web first (got ${CORE_WEB_DIST})`);
   }
@@ -168,7 +168,7 @@ export async function setupBrowserHarness(email = "browser-smoke@example.invalid
 
   const forgeSk = ed25519.utils.randomSecretKey();
   const forgeX = b64u(ed25519.getPublicKey(forgeSk));
-  const label = "browser-smoke-forge";
+  const label = "interop-forge";
   const ts = Math.floor(Date.now() / 1000);
   const proof = b64u(ed25519.sign(te.encode(`enrollment-request\n${forgeX}\n${label}\n${ts}`), forgeSk));
   const start = await api(rig.app, "POST", "/v1/machines/enrollments", {
@@ -264,14 +264,14 @@ export async function setupBrowserHarness(email = "browser-smoke@example.invalid
     const out = (e as { stderr?: Buffer }).stderr?.toString() ?? String(e);
     throw new Error(`forge-smoke build failed (editor tree mid-edit? rerun when stable):\n${out.split("\n").slice(-30).join("\n")}`);
   }
-  const dataDir = mkdtempSync(join(tmpdir(), "browser-smoke-"));
-  const smoke: ChildProcess = spawn(
+  const dataDir = mkdtempSync(join(tmpdir(), "relay-interop-"));
+  const forge_proc: ChildProcess = spawn(
     SMOKE_BIN,
     [],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   const lines: string[] = [];
-  smoke.stdout?.on("data", (d: Buffer) => {
+  forge_proc.stdout?.on("data", (d: Buffer) => {
     for (const line of d.toString().split("\n")) if (line.trim()) lines.push(line);
   });
   const nextLine = async (): Promise<string> => {
@@ -279,11 +279,11 @@ export async function setupBrowserHarness(email = "browser-smoke@example.invalid
     for (;;) {
       const line = lines.shift();
       if (line !== undefined) return line;
-      if (Date.now() > deadline) throw new Error("timeout waiting for forge-smoke output");
+      if (Date.now() > deadline) throw new Error("timeout waiting for forge output");
       await new Promise((r) => setTimeout(r, 50));
     }
   };
-  smoke.stdin?.write(
+  forge_proc.stdin?.write(
     `${JSON.stringify({
       ws_url: `${relayWsBase}/v1/route/${accountId}/${machineId}`,
       core_base_url: portalBase,
@@ -295,7 +295,7 @@ export async function setupBrowserHarness(email = "browser-smoke@example.invalid
     })}\n`,
   );
   const hello = JSON.parse(await nextLine()) as Record<string, unknown>;
-  if (!hello["ready"]) throw new Error(`forge-smoke failed to start: ${JSON.stringify(hello)}`);
+  if (!hello["ready"]) throw new Error(`forge failed to start: ${JSON.stringify(hello)}`);
 
   return {
     rig,
@@ -309,15 +309,15 @@ export async function setupBrowserHarness(email = "browser-smoke@example.invalid
     harnessEmail: email,
     close: async () => {
       try {
-        smoke.stdin?.write(`${JSON.stringify({ shutdown: true })}\n`);
+        forge_proc.stdin?.write(`${JSON.stringify({ shutdown: true })}\n`);
       } catch { /* ignore */ }
       await new Promise((r) => setTimeout(r, 1000));
       try {
-        if (smoke.exitCode === null) smoke.kill("SIGTERM");
+        if (forge_proc.exitCode === null) forge_proc.kill("SIGTERM");
       } catch { /* ignore */ }
       await new Promise((r) => setTimeout(r, 3000));
       try {
-        if (smoke.exitCode === null) smoke.kill("SIGKILL");
+        if (forge_proc.exitCode === null) forge_proc.kill("SIGKILL");
       } catch { /* ignore */ }
       await mf?.dispose().catch(() => undefined);
       await new Promise<void>((r) => portal.close(() => r()));

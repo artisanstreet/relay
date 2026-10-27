@@ -9,7 +9,7 @@
 // browser enforcement), WS Origin gating (allowed in, evil refused),
 // Noise E2E connect + /state read, and a Node-driven SUBSCRIBE/$stream
 // start + UNSUBSCRIBE on the same run. Live $event delivery stays covered
-// by forge-smoke.test.ts (production seam, no UI affordance needed).
+// by forge.test.ts (production seam, no UI affordance needed).
 //
 // Requires a Chromium binary: CHROMIUM_PATH, or the shared
 // ~/.cache/ms-playwright cache. Skips cleanly without one (like the
@@ -21,12 +21,12 @@ import type { AddressInfo } from "node:net";
 import { accessSync, constants } from "node:fs";
 import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { setupBrowserHarness, type BrowserHarness } from "./harness.ts";
-import { EditorLink, SecureChannel } from "../src/client.ts";
-import type { GrantMaterial } from "../src/client.ts";
-import { staticKeypairFromSecret } from "../src/channel.ts";
+import { EditorLink, SecureChannel } from "../../src/client.ts";
+import type { GrantMaterial } from "../../src/client.ts";
+import { staticKeypairFromSecret } from "../../src/channel.ts";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { randomBytes } from "@noble/hashes/utils.js";
-import { api } from "../../core/tests/helpers/http.ts";
+import { api } from "../../../core/tests/helpers/http.ts";
 
 function findChromium(): string | null {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
@@ -54,11 +54,11 @@ let h: BrowserHarness;
 let browser: Browser | null = null;
 
 beforeAll(async () => {
-  h = await setupBrowserHarness("browser-smoke@example.invalid");
+  h = await setupBrowserHarness("browser-interop@example.invalid");
   if (CHROME) {
     browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
   } else {
-    console.log("browser-smoke: no Chromium found (set CHROMIUM_PATH); browser tests skip");
+    console.log("browser interop: no Chromium found (set CHROMIUM_PATH); browser tests skip");
   }
 }, 300_000);
 
@@ -132,7 +132,7 @@ describeBrowser("portal in real Chromium (cross-origin Relay)", () => {
     await tab1.waitForSelector(`text=${email}`, { timeout: 30_000 });
 
     await tab1.goto(`${h.portalBase}/#/machines`);
-    await tab1.waitForSelector("text=browser-smoke-forge", { timeout: 30_000 });
+    await tab1.waitForSelector("text=interop-forge", { timeout: 30_000 });
     // Cross-origin presence fetch WITH Authorization: the browser sends a
     // CORS preflight; the Relay answers with the exact portal origin.
     await tab1.waitForSelector("text=/online|offline/", { timeout: 30_000 });
@@ -289,8 +289,8 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
     const forgeCnf = Buffer.from((machines.find((m) => m.id === h.machineId)?.publicKey.x ?? "") as string, "base64url");
     expect(forgeCnf.length).toBe(32);
 
-    const { EditorLink, SecureChannel } = await import("../src/client.ts");
-    const { staticKeypairFromSecret } = await import("../src/channel.ts");
+    const { EditorLink, SecureChannel } = await import("../../src/client.ts");
+    const { staticKeypairFromSecret } = await import("../../src/channel.ts");
     const { randomBytes } = await import("@noble/hashes/utils.js");
     const inbox: Uint8Array[] = [];
     const link = new EditorLink(
@@ -301,7 +301,7 @@ describe("tunnel stream on the same run (Node driver, real Relay + Forge)", () =
     );
     try {
       await link.connect();
-      const ctx = { account: h.accountId, machine: h.machineId, channel: "browser-smoke-stream" };
+      const ctx = { account: h.accountId, machine: h.machineId, channel: "interop-stream" };
       const ch = SecureChannel.initiate(staticKeypairFromSecret(randomBytes(32)), {
         cnfSignKey: editorSk,
         expectedForgeCnf: new Uint8Array(forgeCnf),

@@ -12,13 +12,11 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": false,
     "skipLibCheck": true,
-    "declaration": true,
-    "outDir": "dist",
-    "rootDir": ".",
     "types": [
       "node",
       "@cloudflare/workers-types"
-    ]
+    ],
+    "noEmit": true
   },
   "include": [
     "src/**/*.ts",
