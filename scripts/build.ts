@@ -18,3 +18,21 @@ await build({
   },
 });
 console.log("built dist/relay-client.mjs");
+
+await build({
+  root,
+  logLevel: "warn",
+  resolve: {
+    conditions: ["workerd", "worker", "browser"],
+  },
+  build: {
+    outDir: join(root, "dist"),
+    emptyOutDir: false,
+    lib: {
+      entry: join(root, "src", "index.ts"),
+      formats: ["es"],
+      fileName: () => "worker.mjs",
+    },
+  },
+});
+console.log("built dist/worker.mjs");

@@ -36,9 +36,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // Portable sibling paths: relay/ and editor/ check out side by side.
 // Never commit absolute /home/... paths in this dev harness.
 const EDITOR_DIR = join(root, "..", "editor");
-const SMOKE_DIR = join(root, "interop", "forge-smoke");
-const SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "forge-smoke");
-const NATIVE_BIN = join(EDITOR_DIR, "target", "debug", "native-smoke");
+const FORGE_SMOKE_DIR = join(root, "interop", "forge-smoke");
+const FORGE_SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "forge-smoke");
+const NATIVE_SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "native-smoke");
 const CHUNK_RAW = 40 * 1024;
 
 function b64u(b: Uint8Array): string {
@@ -244,7 +244,7 @@ beforeAll(async () => {
   })();
   try {
     execFileSync("cargo", ["build", "--offline"], {
-      cwd: SMOKE_DIR,
+      cwd: FORGE_SMOKE_DIR,
       env: {
         ...process.env,
         CARGO_TARGET_DIR: join(EDITOR_DIR, "target"),
@@ -266,7 +266,7 @@ beforeAll(async () => {
   // Launch: caller-built Hub + production serve_account_relay.
   dataDir = mkdtempSync(join(tmpdir(), "relay-interop-"));
   forge_proc = spawn(
-    SMOKE_BIN,
+    FORGE_SMOKE_BIN,
     [],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
@@ -572,7 +572,7 @@ describe("production rust seam (serve_account_relay)", () => {
 // Bounded 180 s timeout, stdin config, sanitized captured output.
 function runNativePeer(cfg: Record<string, unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(NATIVE_BIN, [], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(NATIVE_SMOKE_BIN, [], { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {

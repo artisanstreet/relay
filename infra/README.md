@@ -39,11 +39,12 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
     `{ name }`, zone inferred, must pre-exist), `env` (DO binding +
     literals). No `assets` (Relay is API-only; Core's `runWorkerFirst:true`
     is a Core concern, not set here).
-  - `pnpm run build:worker` (repo script `scripts/build-worker.ts`)
-    bundles `../src/index.ts` with the workerd condition set, offline,
-    no cloud calls. The workerd test harness bundles the same entry the
-    same way, and `wrangler deploy --dry-run` plus `alchemy plan` remain
-    the deploy-shape gates.
+  - Root `pnpm run build` (repo script `scripts/build.ts`, Vite+
+    API) bundles both real artifacts offline, no cloud calls:
+    `dist/relay-client.mjs` and `dist/worker.mjs` (workerd condition
+    set). The workerd test harness bundles the same entry the same way,
+    and `wrangler deploy --dry-run` plus `alchemy plan` remain the
+    deploy-shape gates.
   - Origin validation rejects wildcards (`*`/`%2A` — `new URL` parses them,
     so the check is explicit) and rejects identical Core/Relay origins (two
     custom-domain Workers cannot own one host).
@@ -72,7 +73,7 @@ stays in the existing code. See `BOUNDARIES.md` before changing anything.
 | `pnpm install --frozen-lockfile` (in `infra/`) | reproducible install from `pnpm-lock.yaml` | no (npm registry only) |
 | `pnpm run typecheck` | `tsrs --noEmit` on infra only | no |
 | `pnpm test` | vitest: origin validation (exact-https, wildcards, Core/Relay distinctness), var derivation, domain | no |
-| `pnpm run build:worker` | esbuild workerd bundle of `../src/index.ts` to `dist/worker.mjs`, offline | no |
+| `pnpm run build` (repo root) | Vite+ build of `dist/relay-client.mjs` + `dist/worker.mjs`, offline | no |
 | `pnpm run check` | typecheck + test + worker build (the full offline gate) | no |
 | `pnpm run plan -- --stage <s>` | `alchemy plan` (preview; see warning) | YES — see below |
 | `pnpm run deploy -- --stage <s> [--profile <p>] [--env-file <f>]` | `alchemy deploy` | YES |

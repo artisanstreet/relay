@@ -6,14 +6,13 @@
   "description": "Artisan Street Relay infrastructure as code (Alchemy v2, isolated from runtime). Production source of truth for Relay Worker + Durable Object deploys.",
   "scripts": {
     "install:clean": "pnpm install --frozen-lockfile",
-    "check": "pnpm run typecheck && pnpm run test && pnpm run build:worker",
+    "check": "pnpm run typecheck && pnpm run test && pnpm --dir .. run build",
     "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test": "vp test",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
-    "state:bootstrap": "alchemy state bootstrap --backend cloudflare",
-    "build:worker": "node --experimental-strip-types ../scripts/build-worker.ts"
+    "state:bootstrap": "alchemy state bootstrap --backend cloudflare"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",

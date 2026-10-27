@@ -29,8 +29,8 @@ const te = new TextEncoder();
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CORE_WEB_DIST = join(root, "..", "core", "web", "dist");
 const EDITOR_DIR = join(root, "..", "editor");
-const SMOKE_DIR = join(root, "interop", "forge-smoke");
-const SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "forge-smoke");
+const FORGE_SMOKE_DIR = join(root, "interop", "forge-smoke");
+const FORGE_SMOKE_BIN = join(EDITOR_DIR, "target", "debug", "forge-smoke");
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -251,7 +251,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   })();
   try {
     execFileSync("cargo", ["build", "--offline"], {
-      cwd: SMOKE_DIR,
+      cwd: FORGE_SMOKE_DIR,
       env: {
         ...process.env,
         CARGO_TARGET_DIR: join(EDITOR_DIR, "target"),
@@ -266,7 +266,7 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
   }
   const dataDir = mkdtempSync(join(tmpdir(), "relay-interop-"));
   const forge_proc: ChildProcess = spawn(
-    SMOKE_BIN,
+    FORGE_SMOKE_BIN,
     [],
     { stdio: ["pipe", "pipe", "pipe"] },
   );

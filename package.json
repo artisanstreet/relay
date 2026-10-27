@@ -5,16 +5,14 @@
   "type": "module",
   "description": "Artisan Street Relay: independent Workers/Durable Objects routing service. Routes opaque E2E-encrypted payloads between account clients and Forge machines. No thread/application plaintext access.",
   "scripts": {
-    "build": "pnpm run build:client",
+    "build": "node --experimental-strip-types scripts/build.ts",
     "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test": "vp test",
     "deploy:plan": "wrangler deploy --dry-run",
     "dev": "wrangler dev",
     "infra:check": "pnpm --dir infra run check",
     "infra:plan": "pnpm --dir infra run plan",
-    "infra:deploy": "pnpm --dir infra run deploy",
-    "build:client": "node --experimental-strip-types scripts/build-client.ts",
-    "build:worker": "node --experimental-strip-types scripts/build-worker.ts"
+    "infra:deploy": "pnpm --dir infra run deploy"
   },
   "dependencies": {
     "@effect/platform": "0.97.2",
