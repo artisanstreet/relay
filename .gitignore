@@ -7,6 +7,10 @@ dist/
 .env.prod
 .env.staging
 .env.preview
+!.env.schema
+infra/.env*
+!infra/.env.example
+!infra/.env.schema
 .dev.vars
 target/
 *.log

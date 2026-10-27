@@ -23,16 +23,13 @@
 import * as Alchemy from "alchemy";
 import { Stack } from "alchemy/Stack";
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import {
   COMPATIBILITY_DATE,
-  CORE_ORIGIN_VAR,
   DO_BINDING_NAME,
   DO_CLASS_NAME,
   GRANT_MAX_TTL_S,
   RELAY_AUD,
-  RELAY_ORIGIN_VAR,
   REVOCATION_POLL_MS,
   STACK_NAME,
   WORKER_LOGICAL_ID,
@@ -41,6 +38,7 @@ import {
   get_hostname,
   parse_deploy_origins,
 } from "./config.ts";
+import { config as deploy_config } from "./env.generated.ts";
 
 export default Alchemy.Stack(
   STACK_NAME,
@@ -51,11 +49,11 @@ export default Alchemy.Stack(
     // values throw inside the effect (deploy dies with var name + reason).
     // The pair is validated TOGETHER: identical Core/Relay origins are
     // rejected (two custom-domain Workers cannot own the same host).
-    const [core_raw, relay_raw] = yield* Effect.all([
-      Config.String(CORE_ORIGIN_VAR),
-      Config.String(RELAY_ORIGIN_VAR),
-    ]);
-    const { core_origin, relay_origin } = parse_deploy_origins(core_raw, relay_raw);
+    const deploy_env = yield* deploy_config;
+    const { core_origin, relay_origin } = parse_deploy_origins(
+      deploy_env.AST_CORE_ORIGIN,
+      deploy_env.AST_RELAY_ORIGIN,
+    );
 
     const vars = derive_relay_vars(core_origin);
     const domain = get_hostname(relay_origin);

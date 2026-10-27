@@ -21,6 +21,7 @@
   "include": [
     "alchemy.run.ts",
     "config.ts",
+    "env.generated.ts",
     "tests/**/*.ts"
   ]
 }

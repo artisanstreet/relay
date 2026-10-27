@@ -9,8 +9,8 @@
     "check": "pnpm run typecheck && pnpm run test && pnpm --dir .. run build",
     "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test": "vp test",
-    "plan": "alchemy plan",
-    "deploy": "alchemy deploy",
+    "plan": "varlock run --inject vars -- alchemy plan",
+    "deploy": "varlock run --inject vars -- alchemy deploy",
     "destroy": "alchemy destroy",
     "state:bootstrap": "alchemy state bootstrap --backend cloudflare"
   },
@@ -22,8 +22,10 @@
   },
   "devDependencies": {
     "@types/node": "26.6.5",
+    "@varlock/effect-plugin": "0.1.0",
     "tsrs": "0.20.0-ts7.1.0-beta",
     "typescript": "7.1.0-beta",
+    "varlock": "1.23.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
     "vite-plus": "1.4.0",
     "vitest": "5.0.5"
