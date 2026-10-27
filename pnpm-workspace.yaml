@@ -1,0 +1,15 @@
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: false
+  workerd: true
+minimumReleaseAgeExclude:
+  - miniflare@5.20261023.0-beta
+  - wrangler@4.153.0
+  - '@tsrs/darwin-arm64@0.20.0-ts7.1.0-beta'
+  - '@tsrs/darwin-x64@0.20.0-ts7.1.0-beta'
+  - '@tsrs/linux-arm64-gnu@0.20.0-ts7.1.0-beta'
+  - '@tsrs/linux-arm64-musl@0.20.0-ts7.1.0-beta'
+  - '@tsrs/linux-x64-gnu@0.20.0-ts7.1.0-beta'
+  - '@tsrs/linux-x64-musl@0.20.0-ts7.1.0-beta'
+  - '@tsrs/win32-x64@0.20.0-ts7.1.0-beta'
+  - tsrs@0.20.0-ts7.1.0-beta
