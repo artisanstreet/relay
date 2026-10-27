@@ -215,13 +215,13 @@ export async function setupBrowserHarness(email = "browser-interop@example.inval
     format: "esm",
     platform: "browser",
     conditions: ["workerd", "worker", "browser"],
-    outfile: "dist/worker.mjs",
+    outfile: "dist/worker-harness.mjs",
     allowOverwrite: true,
     logLevel: "warning",
   });
   const mf = new Miniflare({
     modules: true,
-    scriptPath: "dist/worker.mjs",
+    scriptPath: "dist/worker-harness.mjs",
     durableObjects: { MACHINE_ROOM: "MachineRoom" },
     bindings: {
       CORE_JWKS_URL: `${portalBase}/.well-known/jwks.json`,

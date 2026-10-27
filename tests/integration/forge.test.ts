@@ -195,13 +195,13 @@ beforeAll(async () => {
     format: "esm",
     platform: "browser",
     conditions: ["workerd", "worker", "browser"],
-    outfile: "dist/worker.mjs",
+    outfile: "dist/worker-forge.mjs",
     allowOverwrite: true,
     logLevel: "warning",
   });
   mf = new Miniflare({
     modules: true,
-    scriptPath: "dist/worker.mjs",
+    scriptPath: "dist/worker-forge.mjs",
     durableObjects: { MACHINE_ROOM: "MachineRoom" },
     bindings: {
       CORE_JWKS_URL: `http://127.0.0.1:${proxyPort}/.well-known/jwks.json`,

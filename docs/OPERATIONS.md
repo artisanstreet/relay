@@ -67,6 +67,9 @@ releases — it is not a deployment path and must not gain competing docs.
 
 - `pnpm install && pnpm run typecheck && pnpm test` (needs network once
   for the snow-peer cargo build; skips cleanly without cargo).
+  `typecheck` needs the migrated Core dev Postgres reachable (Reylo
+  infers the cross-repo `.sql` types against the live schema; defaults
+  to the documented dev database, override with `DATABASE_URL`).
 - `UPDATE_FIXTURES=1 pnpm test tests/vectors.test.ts` to re-freeze
   vectors after dependency bumps (review the diff!).
 - `pnpm run deploy:plan` for the Workers dry-run (local only, not a release).
