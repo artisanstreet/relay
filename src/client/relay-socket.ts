@@ -110,49 +110,87 @@ export class RelaySocket {
   ) {}
 
   connect(): Promise<{ role: string; forgeOnline: boolean }> {
-    return new Promise((resolve, reject) => {
-      const ws = new this.wsImpl(this.url);
-      this.ws = ws;
-      const fail = (e: unknown) => reject(e instanceof Error ? e : new Error(String(e)));
-      ws.addEventListener("error", (e) => fail((e as ErrorEvent).message ?? e));
-      ws.addEventListener("close", (e) => {
-        const ce = e as unknown as { code?: number; reason?: string };
-        this.events.onClose?.(ce.code ?? 1000, ce.reason ?? "");
-        this.ws = null;
-        this.failAll(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
-      });
-      const steady = (e2: MessageEvent) => {
-        void this.onMessage(String(e2.data)).catch(fail);
+    const self = this;
+    type Admission = { role: string; forgeOnline: boolean };
+    const program = Effect.async<Admission, Error>((resume) => {
+      const ws = new self.wsImpl(self.url);
+      self.ws = ws;
+      const fail = (e: Error) => resume(Effect.fail(e));
+      const cleanup_admission = () => {
+        ws.removeEventListener("message", on_first as EventListener);
+        ws.removeEventListener("open", on_open as EventListener);
+        ws.removeEventListener("error", on_error as EventListener);
+        ws.removeEventListener("close", on_close as EventListener);
       };
-      const onFirst = (ev: MessageEvent) => {
+      const settle_ok = (value: Admission) => {
+        cleanup_admission();
+        ws.addEventListener("message", on_steady as EventListener);
+        ws.addEventListener("close", on_steady_close as EventListener);
+        resume(Effect.succeed(value));
+      };
+      const settle_err = (e: Error) => {
+        cleanup_admission();
+        try {
+          ws.close(4401, "gone");
+        } catch { /* expected: socket gone, best effort */ }
+        fail(e);
+      };
+      const on_steady = (e2: MessageEvent) => {
+        void self.onMessage(String(e2.data)).catch(() => {});
+      };
+      const on_steady_close = (e: Event) => {
+        const ce = e as unknown as { code?: number; reason?: string };
+        self.events.onClose?.(ce.code ?? 1000, ce.reason ?? "");
+        self.ws = null;
+        self.failAll(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
+      };
+      const on_error = (e: Event) => {
+        const raw: unknown = (e as { message?: unknown }).message ?? e;
+        settle_err(raw instanceof Error ? raw : new Error(typeof raw === "string" ? raw : String(raw)));
+      };
+      const on_close = (e: Event) => {
+        const ce = e as unknown as { code?: number; reason?: string };
+        self.events.onClose?.(ce.code ?? 1000, ce.reason ?? "");
+        self.ws = null;
+        self.failAll(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
+        settle_err(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
+      };
+      const on_first = (ev: MessageEvent) => {
         void (async () => {
           try {
             const frame = readServerFrame(JSON.parse(String(ev.data)));
             if (frame.type === "challenge") {
               const nonce = b64uDecode(frame.nonce);
-              const sig = popSign(this.grant.cnfSk, nonce, this.grant.jti);
-              send(ws, { v: 1, type: "authenticate", jti: this.grant.jti, sig: b64uEncode(sig) });
+              const sig = popSign(self.grant.cnfSk, nonce, self.grant.jti);
+              send(ws, { v: 1, type: "authenticate", jti: self.grant.jti, sig: b64uEncode(sig) });
               return;
             }
             if (frame.type === "ready") {
-              ws.removeEventListener("message", onFirst as EventListener);
-              ws.addEventListener("message", steady as EventListener);
-              resolve({ role: frame.role, forgeOnline: frame.forge_online });
+              settle_ok({ role: frame.role, forgeOnline: frame.forge_online });
               return;
             }
             if (frame.type === "error") {
-              reject(new Error(`${frame.code}: ${frame.message}`));
+              settle_err(new Error(`${frame.code}: ${frame.message}`));
               return;
             }
           } catch (e) {
-            fail(e);
+            settle_err(e instanceof Error ? e : new Error(String(e)));
           }
         })();
       };
-      ws.addEventListener("message", onFirst as EventListener);
-      ws.addEventListener("open", () => {
-        send(ws, { v: 1, type: "hello", grant: this.grant.jwt });
-      });
+      const on_open = () => {
+        send(ws, { v: 1, type: "hello", grant: self.grant.jwt });
+      };
+      ws.addEventListener("message", on_first as EventListener);
+      ws.addEventListener("open", on_open as EventListener);
+      ws.addEventListener("error", on_error as EventListener);
+      ws.addEventListener("close", on_close as EventListener);
+    });
+    return Effect.runPromiseExit(program).then((exit) => {
+      if (Exit.isSuccess(exit)) return exit.value;
+      const failure = Cause.failureOption(exit.cause);
+      if (Option.isSome(failure)) throw failure.value;
+      throw Cause.squash(exit.cause);
     });
   }
 

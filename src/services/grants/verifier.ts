@@ -1,5 +1,5 @@
 import { Clock, Context, Effect, Layer } from "effect";
-import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
 import { check_grant_claims } from "./checks.ts";
 import type { GrantClaims } from "../../schema.ts";
@@ -48,8 +48,8 @@ export const GrantVerifierLive: Layer.Layer<GrantVerifier, never, HttpClient.Htt
       // SDK boundary adapter (Promise execution allowed here): ONE scoped
       // Effect covers request + body read (no detached work outliving auth),
       // wired to the SDK abort signal with a bounded timeout. Caller headers
-      // pass through; redirects follow the HttpClient/fetch default (safe:
-      // public JWKS JSON, no credentials sent).
+      // pass through; the SDK redirect mode is preserved verbatim via the
+      // fetch RequestInit (authoritative jose policy untouched).
       const fetch_via_client = (
         url: string,
         options: { headers: Headers; method: "GET"; redirect: "manual"; signal: AbortSignal },
@@ -63,7 +63,9 @@ export const GrantVerifierLive: Layer.Layer<GrantVerifier, never, HttpClient.Htt
             const req = HttpClientRequest.get(url, {
               headers: { accept: "application/json", ...header_record },
             });
-            const res = yield* http_client.execute(req);
+            const res = yield* http_client.execute(req).pipe(
+              Effect.provideService(FetchHttpClient.RequestInit, { redirect: options.redirect }),
+            );
             if (res.status < 200 || res.status >= 300) {
               return yield* Effect.fail(new Error("jwks fetch failed"));
             }
