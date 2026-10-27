@@ -1,3 +1,4 @@
+import { Either } from "effect";
 import { b64uDecode, b64uEncode } from "../b64u.ts";
 import { encodeUtf8, popSign } from "../e2e.ts";
 import { NoiseChannel } from "../channel/session.ts";
@@ -72,11 +73,7 @@ export class SecureChannel {
     out.push(...this.noise.takeOutbound());
     out.push(...this.appOut.splice(0, this.appOut.length));
     if (this.noise.getPhase() === "handshake") {
-      try {
-        out.push(this.noise.nextHandshakeMessage());
-      } catch {
-        // Not our turn yet; the peer's message comes first.
-      }
+      void Either.try({ try: () => out.push(this.noise.nextHandshakeMessage()), catch: () => undefined });
     }
     return out;
   }

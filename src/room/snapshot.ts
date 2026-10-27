@@ -1,3 +1,4 @@
+import { Either } from "effect";
 import { b64uDecode } from "../b64u.ts";
 import type { VerifiedGrant } from "../services/grants/verifier.ts";
 import { filter_known_scopes } from "./revocation.ts";
@@ -11,13 +12,13 @@ export function restored_grant(
   if (!Array.isArray((c as { scope?: unknown }).scope)) return null;
   const scope = filter_known_scopes(c.scope);
   if (!scope.includes("relay:connect")) return null;
-  let cnf_pk: Uint8Array;
-  try {
-    cnf_pk = b64uDecode(c.cnfX);
-    if (cnf_pk.length !== 32) cnf_pk = new Uint8Array(32);
-  } catch {
-    cnf_pk = new Uint8Array(32);
-  }
+  const cnf_pk = Either.try({
+    try: () => b64uDecode(c.cnfX),
+    catch: () => new Uint8Array(32),
+  }).pipe(
+    Either.map((b) => (b.length !== 32 ? new Uint8Array(32) : b)),
+    Either.getOrElse((fallback) => fallback),
+  );
   const typed_scope = scope as VerifiedGrant["claims"]["scope"];
   return {
     claims: {

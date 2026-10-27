@@ -2,6 +2,7 @@ import NoiseState from "noise-handshake";
 import type { NoiseOpts } from "noise-handshake";
 import CipherState from "noise-handshake/cipher";
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { Either, Match } from "effect";
 import {
   BIND_DOMAIN,
   ROLE_INITIATOR,
@@ -146,12 +147,14 @@ export class NoiseChannel {
     // copy the library mutates CALLER buffers (it zeroed our m1/m2 fixture
     // vectors before this fix). Live sessions are unaffected either way,
     // but fixture evidence and caller buffers must stay intact.
-    try {
-      this.hs.recv(Uint8Array.from(msg));
-    } catch {
-      this.destroy();
-      throw new Error("handshake failed, session destroyed");
-    }
+    Match.value(Either.try({ try: () => this.hs.recv(Uint8Array.from(msg)), catch: () => undefined })).pipe(
+      Match.tag("Left", () => {
+        this.destroy();
+        throw new Error("handshake failed, session destroyed");
+      }),
+      Match.tag("Right", () => undefined),
+      Match.exhaustive,
+    );
     this.receivedHandshake++;
     if (this.hs.complete) this.onHandshakeComplete();
   }
@@ -218,17 +221,21 @@ export class NoiseChannel {
       throw new Error("session not ready for transport");
     }
     if (!this.recvCipher) throw new Error("no keys");
+    const recv_cipher = this.recvCipher;
     if (ct.length === 0 || ct.length > 65535) {
       this.destroy();
       throw new Error("bad transport length");
     }
-    let pt: Uint8Array;
-    try {
-      pt = Uint8Array.from(this.recvCipher.decrypt(ct));
-    } catch {
-      this.destroy();
-      throw new Error("transport decrypt failed, session destroyed");
-    }
+    const pt: Uint8Array = Match.value(
+      Either.try({ try: () => Uint8Array.from(recv_cipher.decrypt(ct)), catch: () => "decrypt-failed" as const }),
+    ).pipe(
+      Match.tag("Left", (): never => {
+        this.destroy();
+        throw new Error("transport decrypt failed, session destroyed");
+      }),
+      Match.tag("Right", ({ right }) => right),
+      Match.exhaustive,
+    );
     this.recvCount++;
     const { kind, body } = this.parseFrame(pt);
     if (kind === KIND_CONFIRM) {
@@ -258,6 +265,7 @@ export class NoiseChannel {
       this.destroy();
       throw new Error("malformed confirm");
     }
+    const transcript = this.handshakeHash;
     if (this.initiator) {
       // Responder form: hash(64) || sig(64).
       if (body.length !== 128) {
@@ -274,12 +282,14 @@ export class NoiseChannel {
         this.destroy();
         throw new Error("no responder key");
       }
-      let ok = false;
-      try {
-        ok = ed25519.verify(sig, bindingMessage(ROLE_RESPONDER, this.handshakeHash), this.expectedResponderCnf);
-      } catch {
-        ok = false;
-      }
+      const expected_cnf = this.expectedResponderCnf;
+      const ok = Either.getOrElse(
+        Either.try({
+          try: () => ed25519.verify(sig, bindingMessage(ROLE_RESPONDER, transcript), expected_cnf),
+          catch: () => false,
+        }),
+        (fallback) => fallback,
+      );
       if (!ok) {
         this.destroy();
         throw new Error("responder binding signature invalid: not the enrolled Forge");
@@ -306,19 +316,24 @@ export class NoiseChannel {
       // take ONLY the verified cnf key — never trust Relay-forwarded keys.
       // nowSec comes from the channel clock (real time in prod; fixture
       // time in deterministic vector generation).
-      let cnfPk: Uint8Array;
-      try {
-        cnfPk = await (this.verifyChannelJwt as VerifyChannelJwt)(jwt, this.ctx, Math.floor(this.nowMs() / 1000));
-      } catch {
-        this.destroy();
-        throw new Error("initiator grant JWT invalid, session aborted");
-      }
-      let ok = false;
-      try {
-        ok = ed25519.verify(sig, bindingMessage(ROLE_INITIATOR, this.handshakeHash), cnfPk);
-      } catch {
-        ok = false;
-      }
+      const cnfPk: Uint8Array = await (this.verifyChannelJwt as VerifyChannelJwt)(
+        jwt,
+        this.ctx,
+        Math.floor(this.nowMs() / 1000),
+      ).then(
+        (pk) => pk,
+        (): never => {
+          this.destroy();
+          throw new Error("initiator grant JWT invalid, session aborted");
+        },
+      );
+      const ok = Either.getOrElse(
+        Either.try({
+          try: () => ed25519.verify(sig, bindingMessage(ROLE_INITIATOR, transcript), cnfPk),
+          catch: () => false,
+        }),
+        (fallback) => fallback,
+      );
       if (!ok) {
         this.destroy();
         throw new Error("initiator binding signature invalid: JWT identity does not cover this session");
@@ -398,10 +413,13 @@ export class NoiseChannel {
   destroy(): void {
     this.phase = "closed";
     this.pendingOutbound = [];
-    try {
-      (this.hs.tx as Uint8Array | null)?.fill(0);
-      (this.hs.rx as Uint8Array | null)?.fill(0);
-    } catch { /* ignore */ }
+    void Either.try({
+      try: () => {
+        (this.hs.tx as Uint8Array | null)?.fill(0);
+        (this.hs.rx as Uint8Array | null)?.fill(0);
+      },
+      catch: () => undefined,
+    });
     this.sendCipher = null;
     this.recvCipher = null;
     this.handshakeHash?.fill(0);

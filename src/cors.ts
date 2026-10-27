@@ -21,26 +21,28 @@
 //   wrong here: this is admission, so 403 JSON). Absent Origin always
 //   proceeds to grant+PoP admission (native clients unaffected).
 
+import { Either, Match } from "effect";
+
 /** Normalized `scheme://host[:port]`, or null when unset/invalid. */
 export function normalizePortalOrigin(raw: string | undefined): string | null {
   if (!raw) return null;
   const v = raw.trim().replace(/\/+$/, "");
   if (!v || v.includes("*")) return null;
-  let u: URL;
-  try {
-    u = new URL(v);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-  if (u.username || u.password) return null;
-  if (u.pathname !== "/" && u.pathname !== "") return null;
-  if (u.search || u.hash) return null;
-  const defPort = u.protocol === "https:" ? "443" : "80";
-  const port = u.port && u.port !== defPort ? `:${u.port}` : "";
-  const host = u.hostname.toLowerCase();
-  if (!host) return null;
-  return `${u.protocol}//${host}${port}`;
+  return Match.value(Either.try({ try: () => new URL(v), catch: () => null })).pipe(
+    Match.tag("Left", () => null),
+    Match.tag("Right", ({ right: u }) => {
+      if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+      if (u.username || u.password) return null;
+      if (u.pathname !== "/" && u.pathname !== "") return null;
+      if (u.search || u.hash) return null;
+      const defPort = u.protocol === "https:" ? "443" : "80";
+      const port = u.port && u.port !== defPort ? `:${u.port}` : "";
+      const host = u.hostname.toLowerCase();
+      if (!host) return null;
+      return `${u.protocol}//${host}${port}`;
+    }),
+    Match.exhaustive,
+  );
 }
 
 /** Exact-match check of a request Origin against the configured portal. */

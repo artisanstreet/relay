@@ -4,6 +4,7 @@ import {
 } from "../schema.ts";
 import type { ClientFrame } from "../schema.ts";
 import { b64uDecode, b64uEncode } from "../b64u.ts";
+import { Either, Match } from "effect";
 import type { VerifiedGrant } from "../services/grants/verifier.ts";
 import {
   CLOSE_AUTH,
@@ -69,12 +70,9 @@ function err(code: string, message: string): string {
 
 function safe_send(s: RoomSocket | undefined, data: string): boolean {
   if (!s) return false;
-  try {
-    s.send(data);
-    return true;
-  } catch {
-    return false;
-  }
+  return Either.try({ try: () => s.send(data), catch: () => false }).pipe(
+    Either.match({ onLeft: () => false, onRight: () => true }),
+  );
 }
 
 export class RoomState {
@@ -141,22 +139,26 @@ export class RoomState {
       this.drop_conn(connId, CLOSE_POLICY, "frame-too-large");
       return;
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      this.io.send_to(connId, err("malformed", "frame is not JSON"));
-      this.drop_conn(connId, CLOSE_POLICY, "malformed");
-      return;
-    }
-    let frame: ClientFrame;
-    try {
-      frame = decodeClientFrame(parsed);
-    } catch {
-      this.io.send_to(connId, err("invalid-frame", "unknown fields or bad shape"));
-      this.drop_conn(connId, CLOSE_POLICY, "invalid-frame");
-      return;
-    }
+    const parsed = Match.value(Either.try({ try: () => JSON.parse(text) as unknown, catch: () => undefined })).pipe(
+      Match.tag("Left", () => {
+        this.io.send_to(connId, err("malformed", "frame is not JSON"));
+        this.drop_conn(connId, CLOSE_POLICY, "malformed");
+        return undefined;
+      }),
+      Match.tag("Right", ({ right }) => right),
+      Match.exhaustive,
+    );
+    if (parsed === undefined) return;
+    const frame = Match.value(Either.try({ try: () => decodeClientFrame(parsed), catch: () => undefined })).pipe(
+      Match.tag("Left", () => {
+        this.io.send_to(connId, err("invalid-frame", "unknown fields or bad shape"));
+        this.drop_conn(connId, CLOSE_POLICY, "invalid-frame");
+        return undefined;
+      }),
+      Match.tag("Right", ({ right }) => right as ClientFrame),
+      Match.exhaustive,
+    );
+    if (!frame) return;
 
     if (this.core.pending.has(connId) && !this.core.challenges.has(connId)) {
       if (frame.type !== "hello") {
@@ -222,9 +224,7 @@ export class RoomState {
   private drop_conn(connId: string, code: number, reason: string): void {
     const s = this.socket_of(connId);
     this.remove_conn(connId);
-    try {
-      s?.close(code, reason);
-    } catch { /* expected: socket gone, best effort */ }
+    if (s) void Either.try({ try: () => s.close(code, reason), catch: () => undefined });
   }
 
   private send_to_forge(data: string): void {
@@ -462,27 +462,25 @@ export class RoomState {
       if (c.exp <= nowSec) stale = CLOSE_AUTH;
       else if (machineRevoked) stale = CLOSE_REVOKED;
       else {
-        try {
-          const cnfPk = b64uDecode(c.cnfX);
-          if (cnfPk.length !== 32 || matches_revoked_keys(c.kid, cnfPk, core.revoked_keys)) {
-            stale = cnfPk.length !== 32 ? CLOSE_AUTH : CLOSE_REVOKED;
-          }
-        } catch {
-          stale = CLOSE_AUTH;
-        }
+        stale = Match.value(Either.try({ try: () => b64uDecode(c.cnfX), catch: () => "decode-failed" as const })).pipe(
+          Match.tag("Left", () => CLOSE_AUTH),
+          Match.tag("Right", ({ right: cnfPk }) =>
+            cnfPk.length !== 32
+              ? CLOSE_AUTH
+              : matches_revoked_keys(c.kid, cnfPk, core.revoked_keys)
+                ? CLOSE_REVOKED
+                : null),
+          Match.exhaustive,
+        );
       }
       if (stale !== null) {
-        try {
-          sock.close(stale, "stale");
-        } catch { /* expected: socket gone, best effort */ }
+        void Either.try({ try: () => sock.close(stale, "stale"), catch: () => undefined });
         dropped++;
         continue;
       }
       const reattached = restored_grant(this.account, this.machine, c);
       if (!reattached) {
-        try {
-          sock.close(CLOSE_AUTH, "stale");
-        } catch { /* expected: socket gone, best effort */ }
+        void Either.try({ try: () => sock.close(CLOSE_AUTH, "stale"), catch: () => undefined });
         dropped++;
         continue;
       }
@@ -495,18 +493,14 @@ export class RoomState {
       };
       if (c.role === "forge") {
         if (core.forge) {
-          try {
-            sock.close(CLOSE_REPLACED, "duplicate");
-          } catch { /* expected: socket gone, best effort */ }
+          void Either.try({ try: () => sock.close(CLOSE_REPLACED, "duplicate"), catch: () => undefined });
           dropped++;
           continue;
         }
         core.forge = { ...conn, connId: c.conn };
       } else {
         if (core.clients.size >= MAX_CLIENTS) {
-          try {
-            sock.close(CLOSE_POLICY, "room-full");
-          } catch { /* expected: socket gone, best effort */ }
+          void Either.try({ try: () => sock.close(CLOSE_POLICY, "room-full"), catch: () => undefined });
           dropped++;
           continue;
         }

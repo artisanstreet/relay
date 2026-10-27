@@ -1,4 +1,4 @@
-import { Cause, Deferred, Effect, Exit, Option, Queue } from "effect";
+import { Cause, Deferred, Effect, Either, Exit, Option, Queue } from "effect";
 import { readServerFrame } from "../schema.ts";
 import type { ClientFrame } from "../schema.ts";
 import { b64uDecode, b64uEncode } from "../b64u.ts";
@@ -130,9 +130,7 @@ export class RelaySocket {
       };
       const settle_err = (e: Error) => {
         cleanup_admission();
-        try {
-          ws.close(4401, "gone");
-        } catch { /* expected: socket gone, best effort */ }
+        void Either.try({ try: () => ws.close(4401, "gone"), catch: () => undefined });
         fail(e);
       };
       const on_steady = (e2: MessageEvent) => {
@@ -156,27 +154,28 @@ export class RelaySocket {
         settle_err(new SendClosedError(`connection closed (${ce.code ?? 1000})`));
       };
       const on_first = (ev: MessageEvent) => {
-        void (async () => {
-          try {
-            const frame = readServerFrame(JSON.parse(String(ev.data)));
-            if (frame.type === "challenge") {
-              const nonce = b64uDecode(frame.nonce);
-              const sig = popSign(self.grant.cnfSk, nonce, self.grant.jti);
-              send(ws, { v: 1, type: "authenticate", jti: self.grant.jti, sig: b64uEncode(sig) });
-              return;
-            }
-            if (frame.type === "ready") {
-              settle_ok({ role: frame.role, forgeOnline: frame.forge_online });
-              return;
-            }
-            if (frame.type === "error") {
-              settle_err(new Error(`${frame.code}: ${frame.message}`));
-              return;
-            }
-          } catch (e) {
-            settle_err(e instanceof Error ? e : new Error(String(e)));
-          }
-        })();
+        Either.getOrElse(
+          Either.try({
+            try: () => {
+              const frame = readServerFrame(JSON.parse(String(ev.data)));
+              if (frame.type === "challenge") {
+                const nonce = b64uDecode(frame.nonce);
+                const sig = popSign(self.grant.cnfSk, nonce, self.grant.jti);
+                send(ws, { v: 1, type: "authenticate", jti: self.grant.jti, sig: b64uEncode(sig) });
+                return;
+              }
+              if (frame.type === "ready") {
+                settle_ok({ role: frame.role, forgeOnline: frame.forge_online });
+                return;
+              }
+              if (frame.type === "error") {
+                throw new Error(`${frame.code}: ${frame.message}`);
+              }
+            },
+            catch: (e) => e,
+          }),
+          (e) => settle_err(e instanceof Error ? e : new Error(String(e))),
+        );
       };
       const on_open = () => {
         send(ws, { v: 1, type: "hello", grant: self.grant.jwt });
@@ -374,13 +373,16 @@ export class RelaySocket {
     entry.seq = seq;
     st.unacked.push(entry);
     st.unackedBytes += entry.bytes;
-    try {
-      // entry.b64 is the exact string accounted above; never re-encoded.
-      send(ws, { v: 1, type: "data", channel, seq, body: entry.b64 });
-    } catch (e) {
-      return this.drop_tracked(st, entry, e instanceof Error ? e : new Error(String(e)));
-    }
-    return Effect.void;
+    // entry.b64 is the exact string accounted above; never re-encoded.
+    return Either.try({
+      try: () => send(ws, { v: 1, type: "data", channel, seq, body: entry.b64 }),
+      catch: (e) => e,
+    }).pipe(
+      Either.match({
+        onLeft: (e) => this.drop_tracked(st, entry, e instanceof Error ? e : new Error(String(e))),
+        onRight: () => Effect.void as Effect.Effect<void>,
+      }),
+    );
   }
 
   /** Remove one tracked send from wherever it sits and fail it. */
@@ -512,9 +514,7 @@ export class RelaySocket {
   }
 
   close(code = 1000, reason = "bye"): void {
-    try {
-      this.ws?.close(code, reason);
-    } catch { /* ignore */ }
+    void Either.try({ try: () => this.ws?.close(code, reason), catch: () => undefined });
     this.ws = null;
     this.failAll(new SendClosedError("connection closed"));
   }

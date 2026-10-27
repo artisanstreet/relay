@@ -6,6 +6,7 @@
 // Contract: contracts/e2e.md.
 
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { Either } from "effect";
 
 export const POP_DOMAIN = "ast-relay-auth-v1";
 
@@ -32,11 +33,13 @@ export function popVerify(
   jti: string,
   sig: Uint8Array,
 ): boolean {
-  try {
-    return ed25519.verify(sig, popMessage(nonce, jti), cnfPk);
-  } catch {
-    return false;
-  }
+  return Either.getOrElse(
+    Either.try({
+      try: () => ed25519.verify(sig, popMessage(nonce, jti), cnfPk),
+      catch: () => false,
+    }),
+    (fallback) => fallback,
+  );
 }
 
 export function newEd25519Keypair(): { sk: Uint8Array; pk: Uint8Array } {

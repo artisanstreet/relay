@@ -1,6 +1,7 @@
 import { encodeServerFrame } from "../schema.ts";
 import type { ChannelId, DataFrame } from "../schema.ts";
 import { has_scope } from "../services/grants/verifier.ts";
+import { Either } from "effect";
 import { CLOSE_FORBIDDEN, CLOSE_POLICY, MAX_BODY_B64, MAX_CHANNELS } from "./limits.ts";
 import { new_window, window_has_space, window_push, window_release } from "./ack-window.ts";
 import type { AuthedConn, RoomCore, RoomIo } from "./types.ts";
@@ -14,12 +15,9 @@ function safe_send(
   data: string,
 ): boolean {
   if (!socket) return false;
-  try {
-    socket.send(data);
-    return true;
-  } catch {
-    return false;
-  }
+  return Either.try({ try: () => socket.send(data), catch: () => false }).pipe(
+    Either.match({ onLeft: () => false, onRight: () => true }),
+  );
 }
 
 export function close_channel(core: RoomCore, io: RoomIo, channel: string, gone_conn_id: string, reason: string): void {

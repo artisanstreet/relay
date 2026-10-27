@@ -4,6 +4,7 @@ import { b64uDecode, b64uEncode } from "../b64u.ts";
 import { has_scope } from "../services/grants/verifier.ts";
 import { popVerify } from "../e2e.ts";
 import { randomBytes } from "@noble/hashes/utils.js";
+import { Either, Match } from "effect";
 import { CHALLENGE_TTL_MS, CLOSE_AUTH, CLOSE_FORBIDDEN, CLOSE_POLICY, CLOSE_REPLACED, CLOSE_REVOKED, MAX_CLIENTS } from "./limits.ts";
 import { is_revoked } from "./revocation.ts";
 import type { AuthedConn, RoomCore, RoomIo } from "./types.ts";
@@ -22,14 +23,15 @@ function prune_jti(core: RoomCore): void {
 export async function admit_hello(core: RoomCore, io: RoomIo, conn_id: string, jwt: string): Promise<void> {
   const pend = core.pending.get(conn_id);
   if (!pend) return;
-  let grant;
-  try {
-    grant = await core.verify(jwt, Math.floor(core.now() / 1000));
-  } catch {
-    io.send_to(conn_id, err("bad-grant", "grant verification failed"));
-    io.drop(conn_id, CLOSE_AUTH, "bad-grant");
-    return;
-  }
+  const grant = await core.verify(jwt, Math.floor(core.now() / 1000)).then(
+    (verified) => verified,
+    (): null => {
+      io.send_to(conn_id, err("bad-grant", "grant verification failed"));
+      io.drop(conn_id, CLOSE_AUTH, "bad-grant");
+      return null;
+    },
+  );
+  if (!grant) return;
   const cl = grant.claims;
   if (cl.sub !== core.account || cl.mid !== core.machine) {
     io.send_to(conn_id, err("bad-binding", "grant is for another machine"));
@@ -77,14 +79,16 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
     io.drop(conn_id, CLOSE_AUTH, "auth-failed");
     return;
   }
-  let sig: Uint8Array;
-  try {
-    sig = b64uDecode(sig_b64);
-  } catch {
-    io.send_to(conn_id, err("auth-failed", "bad signature encoding"));
-    io.drop(conn_id, CLOSE_AUTH, "auth-failed");
-    return;
-  }
+  const sig = Match.value(Either.try({ try: () => b64uDecode(sig_b64), catch: () => null })).pipe(
+    Match.tag("Left", () => {
+      io.send_to(conn_id, err("auth-failed", "bad signature encoding"));
+      io.drop(conn_id, CLOSE_AUTH, "auth-failed");
+      return null;
+    }),
+    Match.tag("Right", ({ right }) => right),
+    Match.exhaustive,
+  );
+  if (!sig) return;
   if (!popVerify(ch.cnfPk, ch.nonce, ch.jti, sig)) {
     io.send_to(conn_id, err("auth-failed", "proof of possession failed"));
     io.drop(conn_id, CLOSE_AUTH, "auth-failed");
@@ -105,9 +109,7 @@ export function admit_authenticate(core: RoomCore, io: RoomIo, conn_id: string, 
     const prev = core.forge;
     if (prev) {
       io.remove_conn(prev.connId);
-      try {
-        prev.socket.close(CLOSE_REPLACED, "replaced");
-      } catch { /* expected: socket gone, best effort */ }
+      void Either.try({ try: () => prev.socket.close(CLOSE_REPLACED, "replaced"), catch: () => undefined });
     }
     core.forge = { ...conn, connId: conn_id };
     core.events.onForgePresence?.(true);
