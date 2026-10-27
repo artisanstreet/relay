@@ -18,11 +18,11 @@ let jwks_server: ReturnType<typeof createServer>;
 let base = "";
 const core = test_core_key();
 // Mutable Core stub state for the revocation poll test (EXACT Core wire
-// shape: camelCase revokedMachineIds/revokedKeyIds/asOf).
-const stub_revocations: { revokedMachineIds: string[]; revokedKeyIds: string[]; asOf: string } = {
-  revokedMachineIds: [],
-  revokedKeyIds: [],
-  asOf: new Date().toISOString(),
+// shape: snake_case revoked_machine_ids/revoked_key_ids/as_of).
+const stub_revocations: { revoked_machine_ids: string[]; revoked_key_ids: string[]; as_of: string } = {
+  revoked_machine_ids: [],
+  revoked_key_ids: [],
+  as_of: new Date().toISOString(),
 };
 
 beforeAll(async () => {
@@ -186,7 +186,7 @@ describe("worker stack (miniflare)", () => {
     const c = await connect();
     const g = await admit(c, "client");
     // Revoke by cnf key using Core's exact field names.
-    stub_revocations.revokedKeyIds = [Buffer.from(g.cnf_pk).toString("base64url")];
+    stub_revocations.revoked_key_ids = [Buffer.from(g.cnf_pk).toString("base64url")];
     await wait_for(() => c.closed !== null, "revocation close");
     expect(c.closed?.code).toBe(4002);
     // Re-entry with the same (now revoked) key is rejected at hello.
@@ -194,7 +194,7 @@ describe("worker stack (miniflare)", () => {
     c2.ws.send(JSON.stringify({ v: 1, type: "hello", grant: g.jwt }));
     await wait_for(() => c2.closed !== null, "revoked re-entry");
     expect(c2.closed?.code).toBe(4002);
-    stub_revocations.revokedKeyIds = [];
+    stub_revocations.revoked_key_ids = [];
   }, 60_000);
 
   it("unacked flood gets backpressure errors, room stays bounded", async () => {

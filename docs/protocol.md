@@ -130,7 +130,7 @@ post-compromise security is claimed for live sessions.
 ## 7. Open items (need Core / Rust confirmation)
 
 1. Core (done except confirmations): `rev`-free tokens + poll revocation
-   (`revokedMachineIds`/`revokedKeyIds`/`asOf`) aligned and tested against
+   (`revoked_machine_ids`/`revoked_key_ids`/`as_of`) aligned and tested against
    the real `core-issued.json` artifact. Still to confirm: exact `iss`,
    JWKS URL, `aud`, machine-id format, enrolled-key record field for
    Editors. Open question: should `machine:sync`-only grants open

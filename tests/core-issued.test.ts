@@ -27,15 +27,15 @@ interface CoreIssued {
   note: string;
   issuer: string;
   audience: string;
-  accountId: string;
-  machineId: string;
-  issuedAt: string;
+  account_id: string;
+  machine_id: string;
+  issued_at: string;
   expires_at: string;
   expected: Record<string, unknown>;
   grant: string;
   jwks: { keys: { kty: string; crv: string; x: string; kid: string; alg: string; use: string }[] };
-  revocations: { revokedMachineIds: string[]; revokedKeyIds: string[]; asOf: string };
-  machineProof: { headers: Record<string, string>; method: string; pathAndQuery: string; rawBody: string };
+  revocations: { revoked_machine_ids: string[]; revoked_key_ids: string[]; as_of: string };
+  machineProof: { headers: Record<string, string>; method: string; pathAndQuery: string; raw_body: string };
 }
 
 const has_artifact = existsSync(ARTIFACT);
@@ -47,7 +47,7 @@ function payload_of(jwt: string): Record<string, unknown> {
 describe.runIf(has_artifact)("core-issued artifact (release copy)", () => {
   it("verifies the Core-signed grant against the artifact JWKS", async () => {
     const fx = JSON.parse(readFileSync(ARTIFACT, "utf8")) as CoreIssued;
-    for (const f of ["grant", "issuer", "audience", "jwks", "revocations", "accountId", "machineId"] as const) {
+    for (const f of ["grant", "issuer", "audience", "jwks", "revocations", "account_id", "machine_id"] as const) {
       expect(fx[f], `artifact field ${f}`).toBeDefined();
     }
     const unverified = payload_of(fx.grant);
@@ -62,8 +62,8 @@ describe.runIf(has_artifact)("core-issued artifact (release copy)", () => {
     expect(g.claims.v).toBe(1);
     expect(g.claims.iss).toBe(fx.issuer);
     expect(g.claims.aud).toBe(fx.audience);
-    expect(g.claims.sub).toBe(fx.accountId);
-    expect(g.claims.mid).toBe(fx.machineId);
+    expect(g.claims.sub).toBe(fx.account_id);
+    expect(g.claims.mid).toBe(fx.machine_id);
     expect(g.claims.role).toBe((fx.expected as Record<string, unknown>)["role"]);
     expect([...g.scopes].sort()).toEqual(
       ((fx.expected as Record<string, unknown>)["scope"] as string[]).slice().sort(),
@@ -77,8 +77,8 @@ describe.runIf(has_artifact)("core-issued artifact (release copy)", () => {
   it("artifact revocation payload parses to enforcement inputs", () => {
     const fx = JSON.parse(readFileSync(ARTIFACT, "utf8")) as CoreIssued;
     const list = parse_revocations_response(fx.revocations);
-    expect(list).toEqual({ machines: fx.revocations.revokedMachineIds, keys: fx.revocations.revokedKeyIds });
-    expect(typeof fx.revocations.asOf).toBe("string");
+    expect(list).toEqual({ machines: fx.revocations.revoked_machine_ids, keys: fx.revocations.revoked_key_ids });
+    expect(typeof fx.revocations.as_of).toBe("string");
   });
 
   it("artifact machine-proof documents the §3 format (informational)", () => {
@@ -91,7 +91,7 @@ describe.runIf(has_artifact)("core-issued artifact (release copy)", () => {
       expect(lower[h], `proof header ${h}`).toBeDefined();
     }
     expect(lower["authorization"]?.startsWith("AST-Machine ")).toBe(true);
-    expect(lower["x-ast-machine"]).toBe(fx.machineId);
+    expect(lower["x-ast-machine"]).toBe(fx.machine_id);
   });
 
   it("artifact grant admits cleanly, and is rejected once its machine is listed", async () => {

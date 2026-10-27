@@ -1,6 +1,6 @@
 // Cross-repo contract fixture: Core v1 grant + JWKS + revocations JSON in
 // Core's EXACT wire shapes (Core docs/contracts.md §4,
-// src/services/grants/verifier.ts): camelCase revokedMachineIds/revokedKeyIds/asOf,
+// src/services/grants/verifier.ts): snake_case revoked_machine_ids/revoked_key_ids/as_of,
 // standard JWT claims + JWKS.
 //
 // Provenance (honest): Relay-authored shape mirror, signed by a TEST key.
@@ -42,9 +42,9 @@ interface CoreFixture {
   grantJwt: string;
   jwks: { keys: { kty: string; crv: string; x: string; kid: string; alg: string; use: string }[] };
   revocations: {
-    revokedMachineIds: string[];
-    revokedKeyIds: string[];
-    asOf: string;
+    revoked_machine_ids: string[];
+    revoked_key_ids: string[];
+    as_of: string;
     // unknown future field proves forward-compatible reads:
     futureField: string;
   };
@@ -69,7 +69,7 @@ async function build_fixture(): Promise<CoreFixture> {
     origin: "RELAY-AUTHORED SHAPE MIRROR ONLY — not a Core artifact and not a stand-in for one. Field names mirror Core docs/contracts.md §4; signatures are test-key; ids are documented placeholders (see schemaNotes). Do not compare byte outputs with Core-issued bytes.",
     standIn: false,
     requiresCoreArtifact: "core/fixtures/v1/core-issued.json (sibling repo; absent)",
-    schemaNotes: "sub uses Core acct_ULID shape (spec example ULID); mid format unconfirmed — explicit placeholder; rev omitted per Core v1; revocation practitioner: exact camelCase names",
+    schemaNotes: "sub uses Core acct_ULID shape (spec example ULID); mid format unconfirmed — explicit placeholder; rev omitted per Core v1; revocation practitioner: exact snake_case names",
     grantJwt: jwt,
     jwks: {
       keys: [
@@ -84,9 +84,9 @@ async function build_fixture(): Promise<CoreFixture> {
       ],
     },
     revocations: {
-      revokedMachineIds: [MACHINE],
-      revokedKeyIds: [],
-      asOf: new Date(NOW_SEC * 1000).toISOString(),
+      revoked_machine_ids: [MACHINE],
+      revoked_key_ids: [],
+      as_of: new Date(NOW_SEC * 1000).toISOString(),
       futureField: "must-be-ignored",
     },
     expect: { sub: ACCT, mid: MACHINE, role: "client", scope: ["relay:connect"], nowSec: NOW_SEC },

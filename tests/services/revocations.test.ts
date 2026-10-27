@@ -49,12 +49,12 @@ function run_fetch(body: unknown, status = 200, counter?: { calls: number }) {
 }
 
 describe("revocation client (Effect HttpClient, Core-exact shape)", () => {
-  it("parses Core-exact camelCase, ignores unknown fields", async () => {
+  it("parses Core-exact snake_case, ignores unknown fields", async () => {
     const list = await run_fetch({
       v: 1,
-      revokedMachineIds: ["m1"],
-      revokedKeyIds: ["k1"],
-      asOf: "2026-10-27T00:00:00.000Z",
+      revoked_machine_ids: ["m1"],
+      revoked_key_ids: ["k1"],
+      as_of: "2026-10-27T00:00:00.000Z",
       future_unknown: true,
     });
     expect(list).toEqual({ machines: ["m1"], keys: ["k1"] });
@@ -89,7 +89,7 @@ describe("revocation client (Effect HttpClient, Core-exact shape)", () => {
           return Effect.succeed(
             HttpClientResponse.fromWeb(
               _req,
-              new Response(JSON.stringify({ revokedMachineIds: [], revokedKeyIds: [] }), {
+              new Response(JSON.stringify({ revoked_machine_ids: [], revoked_key_ids: [] }), {
                 status: 200,
                 headers: { "content-type": "application/json" },
               }),

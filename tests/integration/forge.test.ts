@@ -111,13 +111,13 @@ beforeAll(async () => {
   rig = await setup_rig();
   const q1 = await api(rig.app, "POST", "/v1/auth/magic/request", { body: { email: "rinterop@example.invalid" } });
   if (q1.status !== 200) throw new Error(`request failed: ${q1.text}`);
-  const { requestId: request_id, requestSecret: request_secret } = q1.json as { requestId: string; requestSecret: string };
+  const { request_id, request_secret } = q1.json as { request_id: string; request_secret: string };
   const token = rig.token_for_email("rinterop@example.invalid");
   const q2 = await api(rig.app, "POST", "/v1/auth/magic/consume", { body: { token } });
   if (q2.status !== 200) throw new Error(`consume failed: ${q2.text}`);
   const q3 = await api(rig.app, "POST", "/v1/auth/magic/finalize", { body: { requestId: request_id, requestSecret: request_secret } });
   if (q3.status !== 200) throw new Error(`finalize failed: ${q3.text}`);
-  account_id = (q3.json as { accountId: string }).accountId;
+  account_id = (q3.json as { account_id: string }).account_id;
   session_cookie = ((q3.headers.get("set-cookie") ?? "").split(";")[0] ?? "") as string;
 
   forge_sk = ed25519.utils.randomSecretKey();
@@ -129,7 +129,7 @@ beforeAll(async () => {
     body: { publicKey: { kty: "OKP", crv: "Ed25519", x: forge_x }, label, timestamp: ts, proof },
   });
   if (start.status !== 201) throw new Error(`enroll failed: ${start.text}`);
-  const { enrollmentId: enrollment_id, code } = start.json as { enrollmentId: string; code: string };
+  const { enrollment_id, code } = start.json as { enrollment_id: string; code: string };
   const claim = await api(rig.app, "POST", "/v1/machines/enrollments/claim", {
     headers: { cookie: session_cookie, origin: "http://localhost" },
     body: { code },
@@ -150,7 +150,7 @@ beforeAll(async () => {
     raw_body: cbody,
   });
   if (done.status !== 201) throw new Error(`confirm failed: ${done.text}`);
-  machine_id = (done.json as { machineId: string }).machineId;
+  machine_id = (done.json as { machine_id: string }).machine_id;
 
   // NOTE: the Editor grant is minted in the TEST (fresh 300s TTL after the
   // cargo build + Hub startup), never here — minting it in beforeAll lets
@@ -381,8 +381,8 @@ describe("production rust seam (serve_account_relay)", () => {
     // Editor's view of the Forge enrolled key (authenticated Core record).
     const ml = await api(rig.app, "GET", "/v1/machines", { headers: { cookie: session_cookie, origin: "http://localhost" } });
     expect(ml.status).toBe(200);
-    const listed = (ml.json as { machines?: { id: string; label?: string; publicKey: { x: string } }[] }).machines ?? [];
-    const forge_cnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machine_id)?.publicKey.x ?? "") as string, "base64url"));
+    const listed = (ml.json as { machines?: { id: string; label?: string; public_key: { x: string } }[] }).machines ?? [];
+    const forge_cnf = Uint8Array.from(Buffer.from((listed.find((m) => m.id === machine_id)?.public_key.x ?? "") as string, "base64url"));
     expect(forge_cnf.length).toBe(32);
 
     const uni_ctx = { account: account_id, machine: machine_id, channel: "r-unary" };

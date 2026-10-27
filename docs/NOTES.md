@@ -20,8 +20,8 @@ identity, grants, fingerprints (Core), threads/runs/files (Forge).
 - Core v1 alignment (2026-10-27, authoritative Core §4): NO `rev` claim
   (accepted-if-present, never enforced), NO admin push (removed; unknown
   scopes rejected). Revocation = short expiry (per-frame + sweep) +
-  polled `GET /v1/grants/revocations` emitting Core-exact camelCase
-  `{revokedMachineIds, revokedKeyIds, asOf}` (test/core-contract.test.ts
+  polled `GET /v1/grants/revocations` emitting Core-exact snake_case
+  `{revoked_machine_ids, revoked_key_ids, as_of}` (test/core-contract.test.ts
   pins the shape; unknown fields ignored). Env: `CORE_REVOCATIONS_URL`
   (else derived), `REVOCATION_POLL_MS` default 60s.
 - E2E: `Noise_XX_25519_ChaChaPoly_BLAKE2b` via pinned

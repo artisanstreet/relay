@@ -6,9 +6,9 @@ import { RevocationFetchFailed } from "../errors.ts";
 const RevId = Schema.String.pipe(Schema.maxLength(256));
 
 const RevocationsResponse = Schema.Struct({
-  revokedMachineIds: Schema.optional(Schema.Array(RevId)),
-  revokedKeyIds: Schema.optional(Schema.Array(RevId)),
-  asOf: Schema.optional(Schema.Union(Schema.String, Schema.Number)),
+  revoked_machine_ids: Schema.optional(Schema.Array(RevId)),
+  revoked_key_ids: Schema.optional(Schema.Array(RevId)),
+  as_of: Schema.optional(Schema.Union(Schema.String, Schema.Number)),
 });
 
 export interface RevocationList {
@@ -19,8 +19,8 @@ export interface RevocationList {
 export function parse_revocations_response(body: unknown): RevocationList {
   const parsed = Schema.decodeUnknownSync(RevocationsResponse)(body);
   return {
-    machines: [...(parsed.revokedMachineIds ?? [])],
-    keys: [...(parsed.revokedKeyIds ?? [])],
+    machines: [...(parsed.revoked_machine_ids ?? [])],
+    keys: [...(parsed.revoked_key_ids ?? [])],
   };
 }
 

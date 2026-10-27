@@ -79,10 +79,10 @@ alarm sleep was missed) plus the polled `GET /v1/grants/revocations`
 list (machine ids + key ids). Relay polls every 60s (env-overridable)
 and sweeps live connections; new hellos check the last-known list
 (stale-while-revalidate; documented bound ≤ poll + alarm).
-Response reads match Core's exact camelCase names
-(`revokedMachineIds`/`revokedKeyIds`/`asOf`); unknown fields are ignored.
+Response reads match Core's exact snake_case names
+(`revoked_machine_ids`/`revoked_key_ids`/`as_of`); unknown fields are ignored.
 Key matching tries signing `kid`, raw `cnf` key, and its SHA-256
 fingerprint.
 
-Pair status returning `accountId` + verified email to an authenticated
+Pair status returning `account_id` + verified email to an authenticated
 Forge (local-approval UX) is Core↔Forge surface, not Relay.

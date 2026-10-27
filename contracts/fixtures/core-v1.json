@@ -2,7 +2,7 @@
   "origin": "RELAY-AUTHORED SHAPE MIRROR ONLY — not a Core artifact and not a stand-in for one. Field names mirror Core docs/contracts.md §4; signatures are test-key; ids are documented placeholders (see schemaNotes). Do not compare byte outputs with Core-issued bytes.",
   "standIn": false,
   "requiresCoreArtifact": "core/fixtures/v1/core-issued.json (sibling repo; absent)",
-  "schemaNotes": "sub uses Core acct_ULID shape (spec example ULID); mid format unconfirmed — explicit placeholder; rev omitted per Core v1; revocation practitioner: exact camelCase names",
+  "schemaNotes": "sub uses Core acct_ULID shape (spec example ULID); mid format unconfirmed — explicit placeholder; rev omitted per Core v1; revocation practitioner: exact snake_case names",
   "grantJwt": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6InRlc3QtY29yZS0xIn0.eyJ2IjoxLCJzdWIiOiJhY2N0XzAxQVJaM05ERUtUU1Y0UlJGRlE2OUc1RkFWIiwibWlkIjoiZml4dHVyZS1mb3JnZSIsInJvbGUiOiJjbGllbnQiLCJzY29wZSI6WyJyZWxheTpjb25uZWN0Il0sImNuZiI6eyJqd2siOnsia3R5IjoiT0tQIiwiY3J2IjoiRWQyNTUxOSIsIngiOiJKSXJMMjYtZUJRR1czbkJMNmkxb2R3NVJrVkRSQTdXSDJ1TFp5dFU5MlRBIn19LCJqdGkiOiJjb3JlLWZpeHR1cmUtMDAxIiwiaXNzIjoiaHR0cHM6Ly9hc3QuZXhhbXBsZS5pbnZhbGlkIiwiYXVkIjoiYXN0LXJlbGF5IiwiaWF0IjoyMDAwMDAwMDAwLCJuYmYiOjIwMDAwMDAwMDAsImV4cCI6MjAwMDAwMDEyMH0._L7VHQlX4Eu31d-dWEZogUWoiE3dcQEyVcIsXMeXDuNrPY8-0eSQLjUe8mSuz8vD9Bucq69ge5wwmFTmrtK7DA",
   "jwks": {
     "keys": [
@@ -17,11 +17,11 @@
     ]
   },
   "revocations": {
-    "revokedMachineIds": [
+    "revoked_machine_ids": [
       "fixture-forge"
     ],
-    "revokedKeyIds": [],
-    "asOf": "2033-05-18T03:33:20.000Z",
+    "revoked_key_ids": [],
+    "as_of": "2033-05-18T03:33:20.000Z",
     "futureField": "must-be-ignored"
   },
   "expect": {
