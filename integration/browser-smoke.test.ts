@@ -26,7 +26,7 @@ import type { GrantMaterial } from "../src/client.ts";
 import { staticKeypairFromSecret } from "../src/channel.ts";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { randomBytes } from "@noble/hashes/utils.js";
-import { api } from "../../core/tests/helpers.ts";
+import { api } from "../../core/tests/helpers/http.ts";
 
 function findChromium(): string | null {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
